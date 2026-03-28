@@ -1,10 +1,12 @@
 """
 Bitcoin Price Predictor — Streamlit App
 
-Three-page app:
-1. Dashboard: current 7-day prediction with confidence and key indicators
-2. Paper Trading: historical prediction log with simulated P&L
-3. Model Performance: evaluation metrics, charts, regime analysis
+5-page app:
+1. Financial Dashboard: price charts, indicators, sentiment, cross-asset
+2. 7-Day Forecast: current prediction with confidence and drift detection
+3. Strategy Lab: backtest strategies with leverage, SL/TP
+4. Model Performance: evaluation metrics, regime analysis
+5. Documentation: how to use, data sources, methodology, limitations
 """
 
 import streamlit as st
@@ -17,27 +19,30 @@ st.set_page_config(
 )
 
 st.sidebar.title("BTC Price Predictor")
-st.sidebar.markdown("ML-powered 7-day Bitcoin forecasts")
+st.sidebar.markdown("ML-powered Bitcoin analysis & forecasting")
 st.sidebar.markdown("---")
 
-# Navigation
 page = st.sidebar.radio(
     "Navigate",
-    ["Dashboard", "Paper Trading", "Model Performance"],
+    ["Dashboard", "7-Day Forecast", "Strategy Lab", "Model Performance", "Documentation"],
 )
 
 if page == "Dashboard":
     from pages.dashboard import render
-    render()
-elif page == "Paper Trading":
-    from pages.paper_trading import render
-    render()
+elif page == "7-Day Forecast":
+    from pages.forecast import render
+elif page == "Strategy Lab":
+    from pages.strategy_lab import render
 elif page == "Model Performance":
     from pages.performance import render
-    render()
+elif page == "Documentation":
+    from pages.documentation import render
+
+render()
 
 st.sidebar.markdown("---")
-st.sidebar.markdown(
+st.sidebar.caption(
     "Built by [Marc Seger](https://github.com/Marc-Seger)  \n"
-    "XGBoost + walk-forward validation"
+    "XGBoost | Walk-forward validation  \n"
+    "Not financial advice."
 )
