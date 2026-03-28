@@ -1,0 +1,83 @@
+name: Daily Data Update & Prediction
+
+on:
+  schedule:
+    # Run at 07:00 UTC daily (after US markets close, crypto markets 24/7)
+    - cron: '0 7 * * *'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+jobs:
+  update-and-predict:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pandas numpy yfinance fredapi pytrends requests python-dotenv \
+                      xgboost scikit-learn joblib
+
+      - name: Download master_df from latest release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p data/full_data
+          gh release download latest \
+            --pattern 'master_df.csv' \
+            --dir data/full_data \
+            --clobber || echo "No existing release found — will need initial upload"
+
+      - name: Update data pipeline
+        env:
+          FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
+        run: |
+          python scripts/update_data.py
+
+      - name: Train production model
+        run: |
+          python scripts/train_production.py
+
+      - name: Make prediction and log it
+        run: |
+          python -c "
+          import sys, os
+          sys.path.insert(0, 'app/model')
+          sys.path.insert(0, 'src')
+          from predict import predict_current, log_prediction, update_outcomes
+
+          prediction = predict_current()
+          if 'error' not in prediction:
+              log_prediction(prediction)
+              update_outcomes()
+              print(f'Prediction logged: {prediction[\"direction\"]} ({prediction[\"predicted_return\"]:+.2%})')
+              print(f'BTC: \${prediction[\"btc_price\"]:,.0f} -> \${prediction[\"predicted_price\"]:,.0f} (7d)')
+          else:
+              print(f'Error: {prediction[\"error\"]}')
+          "
+
+      - name: Upload updated master_df to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Create or update the 'latest' release with the new master_df
+          gh release upload latest data/full_data/master_df.csv --clobber 2>/dev/null || \
+          gh release create latest data/full_data/master_df.csv \
+            --title "Latest Data" \
+            --notes "Auto-updated master_df.csv from daily pipeline"
+
+      - name: Commit trade log
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add app/data/trade_log.csv 2>/dev/null || true
+          git diff --staged --quiet || git commit -m "Daily prediction: $(date -u +%Y-%m-%d)"
+          git push || true
