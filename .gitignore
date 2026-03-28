@@ -1,0 +1,14 @@
+# Environment
+.env
+__pycache__/
+*.pyc
+.DS_Store
+
+# Data directory (too large for GitHub — regenerate via scripts/update_data.py)
+/data/
+
+# Trained models directory (too large for GitHub — regenerate via training scripts)
+/models/
+
+# Legacy notebooks (all logic migrated to src/)
+/notebooks/
