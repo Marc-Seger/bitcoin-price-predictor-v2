@@ -2,7 +2,21 @@
 Bitcoin Price Predictor — Streamlit App
 """
 
+import os
+import requests
 import streamlit as st
+
+# ─── Ensure master_df.csv exists (download from GitHub Release if running on Streamlit Cloud) ───
+_DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'full_data', 'master_df.csv')
+_RELEASE_URL = 'https://github.com/Marc-Seger/bitcoin-price-predictor-v2/releases/download/latest/master_df.csv'
+
+if not os.path.exists(_DATA_PATH):
+    os.makedirs(os.path.dirname(_DATA_PATH), exist_ok=True)
+    with st.spinner('Downloading data (first run only, ~30s)...'):
+        r = requests.get(_RELEASE_URL, timeout=120)
+        r.raise_for_status()
+        with open(_DATA_PATH, 'wb') as f:
+            f.write(r.content)
 
 st.set_page_config(
     page_title="BTC Price Predictor",

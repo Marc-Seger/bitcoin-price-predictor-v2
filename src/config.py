@@ -59,6 +59,16 @@ COINMETRICS_METRICS = {
 }
 
 # ─────────────────────────────────────────────
+# COLUMN NAMES — sentiment & external signals
+# ─────────────────────────────────────────────
+
+# Used in fetch.py, merge.py, backfill_history.py, and dashboard views.
+# Centralised here so a rename only requires one change.
+COL_FEAR_GREED    = 'Sentiment_BTC_index_value'
+COL_GOOGLE_TRENDS = 'Sentiment_GT_Bitcoin'
+COL_ETF_FLOW      = 'ETF_Flow_Total'
+
+# ─────────────────────────────────────────────
 # TARGETS
 # ─────────────────────────────────────────────
 

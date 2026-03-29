@@ -7,8 +7,12 @@ __pycache__/
 # Data directory (too large for GitHub — regenerate via scripts/update_data.py)
 /data/
 
-# Trained models directory (too large for GitHub — regenerate via training scripts)
-/models/
+# Trained models — sub-model folders ignored, production model tracked in git
+/models/GRU/
+/models/LSTM/
+/models/RF/
+/models/XGBoost/
+/models/scalers/
 
 # Legacy notebooks (all logic migrated to src/)
 /notebooks/

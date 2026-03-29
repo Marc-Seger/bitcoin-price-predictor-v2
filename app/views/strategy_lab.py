@@ -14,43 +14,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 from config import RESULTS_DIR, MASTER_DF_PATH
-
-# ─── Dark theme ───
-CHART_BG = "#0f1520"
-GRID_COLOR = "#1e2940"
-TEXT_COLOR = "#8899b4"
-CARD_COLORS = {
-    'blue': '#3b82f6', 'emerald': '#10b981', 'amber': '#f59e0b',
-    'rose': '#f43f5e', 'violet': '#8b5cf6',
-}
-DARK_LAYOUT = dict(
-    template='plotly_dark',
-    paper_bgcolor=CHART_BG, plot_bgcolor=CHART_BG,
-    font=dict(family="JetBrains Mono, monospace", color=TEXT_COLOR, size=11),
-    xaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
-    yaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
-    margin=dict(l=50, r=20, t=20, b=30),
-    legend=dict(orientation='h', y=1.02, font=dict(size=10)),
-)
-
-
-def styled_metric(label, value, delta=None, color='blue'):
-    border_color = CARD_COLORS.get(color, CARD_COLORS['blue'])
-    delta_html = ""
-    if delta is not None:
-        is_positive = str(delta).lstrip().startswith("+")
-        delta_color = "#10b981" if is_positive else "#f43f5e"
-        delta_html = f"<div style='font-size:12px;color:{delta_color};font-family:JetBrains Mono,monospace;'>{delta}</div>"
-    st.markdown(f"""
-    <div style="background:#171f30;border:1px solid #263354;border-left:3px solid {border_color};
-                border-radius:8px;padding:12px 14px;">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;
-                    color:#56657e;font-weight:600;margin-bottom:4px;">{label}</div>
-        <div style="font-size:20px;font-weight:700;color:#e8edf5;
-                    font-family:JetBrains Mono,monospace;">{value}</div>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
+from components import CARD_COLORS, DARK_LAYOUT, styled_metric
 
 
 @st.cache_data
@@ -222,6 +186,14 @@ def render():
     if preds.empty:
         st.error("No prediction results found. Run model evaluation first.")
         return
+
+    date_from = preds.index.min().strftime('%b %Y')
+    date_to   = preds.index.max().strftime('%b %Y')
+    st.info(
+        f"Backtest period: **{date_from} → {date_to}** — based on walk-forward predictions "
+        f"(model trained only on past data at each point, no future data used). "
+        f"Results reflect actual market conditions over this period."
+    )
 
     # ─── Strategy controls ───
     st.sidebar.markdown("### Strategy Settings")

@@ -100,11 +100,11 @@ def main():
     # SQLite storage — allows interrupting and resuming
     tuning_dir = os.path.join(RESULTS_DIR, 'tuning')
     os.makedirs(tuning_dir, exist_ok=True)
-    db_path = os.path.join(tuning_dir, 'xgboost_study.db')
+    db_path = os.path.join(tuning_dir, 'xgboost_study_v2.db')
     storage = f'sqlite:///{db_path}'
 
     study = optuna.create_study(
-        study_name='xgboost_7d',
+        study_name='xgboost_7d_clean',
         direction='maximize',  # maximize R²
         storage=storage,
         load_if_exists=True,  # resume if interrupted
@@ -158,7 +158,7 @@ def main():
         print(f'  {k}: {v}')
 
     # Save best params as JSON
-    params_path = os.path.join(tuning_dir, 'xgboost_best_params.json')
+    params_path = os.path.join(tuning_dir, 'xgboost_best_params_v2.json')
     with open(params_path, 'w') as f:
         json.dump(best, f, indent=2)
     print(f'\nBest params saved: {params_path}')
@@ -166,7 +166,7 @@ def main():
     # Save all trials as CSV
     trials_df = study.trials_dataframe()
     trials_df = trials_df.sort_values('value', ascending=False)
-    trials_path = os.path.join(tuning_dir, 'xgboost_tuning_results.csv')
+    trials_path = os.path.join(tuning_dir, 'xgboost_tuning_results_v2.csv')
     trials_df.to_csv(trials_path, index=False)
     print(f'All trials saved: {trials_path}')
 

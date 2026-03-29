@@ -15,50 +15,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
-from config import MASTER_DF_PATH, ASSETS
-
-# ─── Dark theme colors (match app.py CSS) ───
-CHART_BG = "#0f1520"
-GRID_COLOR = "#1e2940"
-TEXT_COLOR = "#8899b4"
-CARD_COLORS = {
-    'blue': '#3b82f6', 'emerald': '#10b981', 'amber': '#f59e0b',
-    'rose': '#f43f5e', 'violet': '#8b5cf6',
-}
-ASSET_COLORS = {
-    'BTC': '#f7931a', 'SP500': '#3b82f6', 'NASDAQ': '#06b6d4',
-    'GOLD': '#f59e0b', 'DXY': '#8b5cf6',
-}
-
-DARK_LAYOUT = dict(
-    template='plotly_dark',
-    paper_bgcolor=CHART_BG,
-    plot_bgcolor=CHART_BG,
-    font=dict(family="JetBrains Mono, monospace", color=TEXT_COLOR, size=11),
-    xaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
-    yaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
-    margin=dict(l=50, r=50, t=20, b=30),
-    legend=dict(orientation='h', y=1.02, font=dict(size=10)),
-)
-
-
-def styled_metric(label, value, delta=None, color='blue'):
-    """Render a KPI card with colored left border."""
-    border_color = CARD_COLORS.get(color, CARD_COLORS['blue'])
-    delta_html = ""
-    if delta is not None:
-        delta_color = "#10b981" if str(delta).startswith("+") else "#f43f5e"
-        delta_html = f"<div style='font-size:12px;color:{delta_color};font-family:JetBrains Mono,monospace;'>{delta}</div>"
-    st.markdown(f"""
-    <div style="background:#171f30;border:1px solid #263354;border-left:3px solid {border_color};
-                border-radius:8px;padding:12px 14px;">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;
-                    color:#56657e;font-weight:600;margin-bottom:4px;">{label}</div>
-        <div style="font-size:20px;font-weight:700;color:#e8edf5;
-                    font-family:JetBrains Mono,monospace;">{value}</div>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
+from config import MASTER_DF_PATH, ASSETS, COL_FEAR_GREED, COL_GOOGLE_TRENDS, COL_ETF_FLOW
+from components import CARD_COLORS, ASSET_COLORS, DARK_LAYOUT, CHART_BG, styled_metric
 
 
 @st.cache_data(ttl=300)
@@ -290,7 +248,7 @@ def render():
 
         col_gauge, col_timeline = st.columns([1, 2])
 
-        fg_col = 'Sentiment_BTC_index_value'
+        fg_col = COL_FEAR_GREED
 
         with col_gauge:
             st.markdown("### Fear & Greed Index")
@@ -349,7 +307,7 @@ def render():
 
         # Google Trends
         st.markdown("### Google Trends — Bitcoin Search Interest")
-        trends_col = 'Google_Trends_bitcoin'
+        trends_col = COL_GOOGLE_TRENDS
         if trends_col in df.columns:
             trends = df[trends_col].dropna().tail(sent_n)
             if not trends.empty:
@@ -362,6 +320,28 @@ def render():
                 ))
                 fig_trends.update_layout(height=200, **DARK_LAYOUT)
                 st.plotly_chart(fig_trends, use_container_width=True)
+            else:
+                st.info("No Google Trends data available for the selected period.")
+
+        # ETF Flows
+        st.markdown("### Bitcoin ETF Daily Flows")
+        st.caption("Net institutional inflow/outflow across all spot Bitcoin ETFs ($M). Available from Jan 2024.")
+        etf_col = COL_ETF_FLOW
+        if etf_col in df.columns:
+            etf_data = df[etf_col].dropna().tail(sent_n)
+            if not etf_data.empty:
+                colors = ['#10b981' if v >= 0 else '#f43f5e' for v in etf_data.values]
+                fig_etf = go.Figure()
+                fig_etf.add_trace(go.Bar(
+                    x=etf_data.index, y=etf_data.values,
+                    marker_color=colors,
+                    name='Net Flow ($M)',
+                ))
+                fig_etf.add_hline(y=0, line_color='#56657e', opacity=0.5)
+                fig_etf.update_layout(height=220, yaxis_title='$M', **DARK_LAYOUT)
+                st.plotly_chart(fig_etf, use_container_width=True)
+            else:
+                st.info("ETF flow data not available for the selected period (data starts Jan 2024).")
 
     # ══════════════════════════════════════════
     # TAB 3: On-Chain
@@ -435,11 +415,11 @@ def render():
             st.plotly_chart(fig_perf, use_container_width=True)
 
         # Correlation heatmap
-        st.markdown("**Rolling 30-Day Correlation**")
+        st.markdown(f"**{timeframe_cross} Return Correlation**")
         close_cols = {a: f'Close_{a}' for a in ASSETS if f'Close_{a}' in cross_df.columns}
         if len(close_cols) > 1:
             returns = pd.DataFrame({a: cross_df[c].pct_change() for a, c in close_cols.items()})
-            corr = returns.tail(30).corr()
+            corr = returns.corr()
 
             fig_corr = go.Figure(go.Heatmap(
                 z=corr.values, x=corr.columns, y=corr.index,
