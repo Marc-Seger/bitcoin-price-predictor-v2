@@ -19,10 +19,15 @@ import sys
 import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from config import MASTER_DF_PATH, FRED_SERIES
+from config import MASTER_DF_PATH, FRED_SERIES, ASSETS, COL_GOOGLE_TRENDS
 
 # Derived from FRED_SERIES keys — stays in sync automatically
 FFILL_COLUMNS = list(FRED_SERIES.keys())
+
+# Non-BTC OHLCV columns that need weekend/holiday forward-fill
+# (traditional markets don't trade on weekends; BTC does, so BTC rows exist but SP500 etc. are NaN)
+_OHLCV = ['Open', 'High', 'Low', 'Close', 'Volume']
+NON_BTC_OHLCV = [f'{p}_{a}' for a in ASSETS if a != 'BTC' for p in _OHLCV]
 
 
 def load_master() -> pd.DataFrame:
@@ -90,11 +95,22 @@ def append_new_rows(master: pd.DataFrame, new_data: pd.DataFrame) -> pd.DataFram
 
 def forward_fill_sparse(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Forward-fills monthly FRED series and other sparse columns.
-    Only fills columns that actually exist in the DataFrame.
+    Forward-fills three types of columns:
+    1. Monthly FRED macro series — carry last known value until next release.
+    2. Non-BTC OHLCV — traditional markets are closed on weekends/holidays,
+       so BTC rows exist but SP500/NASDAQ/GOLD/DXY have NaN. Forward-fill
+       to keep rolling indicator windows intact.
+    3. Weekly Google Trends — published weekly, forward-fill to daily.
     """
-    cols_to_fill = [c for c in FFILL_COLUMNS if c in df.columns]
-    df[cols_to_fill] = df[cols_to_fill].ffill()
+    macro_cols = [c for c in FFILL_COLUMNS if c in df.columns]
+    df[macro_cols] = df[macro_cols].ffill()
+
+    price_cols = [c for c in NON_BTC_OHLCV if c in df.columns]
+    df[price_cols] = df[price_cols].ffill()
+
+    if COL_GOOGLE_TRENDS in df.columns:
+        df[COL_GOOGLE_TRENDS] = df[COL_GOOGLE_TRENDS].ffill()
+
     return df
 
 

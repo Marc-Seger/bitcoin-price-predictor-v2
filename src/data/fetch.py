@@ -19,12 +19,14 @@ import requests
 import pandas as pd
 import yfinance as yf
 from datetime import date, timedelta
+from io import StringIO
+from bs4 import BeautifulSoup
 from fredapi import Fred
 from pytrends.request import TrendReq
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-from config import TICKERS, FRED_SERIES, COINMETRICS_METRICS
+from config import TICKERS, FRED_SERIES, COINMETRICS_METRICS, COL_GOOGLE_TRENDS, COL_ETF_FLOW
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '../../..', '.env'))
 FRED_API_KEY = os.getenv('FRED_API_KEY')
@@ -210,7 +212,7 @@ def fetch_google_trends(last_date: str) -> pd.DataFrame:
         print('Google Trends: no data returned.')
         return pd.DataFrame()
 
-    df = df[['bitcoin']].rename(columns={'bitcoin': 'Sentiment_GT_Bitcoin'})
+    df = df[['bitcoin']].rename(columns={'bitcoin': COL_GOOGLE_TRENDS})
     df.index = pd.to_datetime(df.index).normalize()
     df.index.name = 'date'
 
@@ -265,6 +267,85 @@ def fetch_onchain(last_date: str) -> pd.DataFrame:
 
 
 # ─────────────────────────────────────────────
+# 6. ETF FLOWS — farside.co.uk
+# ─────────────────────────────────────────────
+
+_FARSIDE_HEADERS = {
+    'User-Agent': (
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+    ),
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.5',
+}
+
+
+def _parse_accounting(val) -> float:
+    """Convert accounting notation to float: '(95.1)' → -95.1, '-' → 0."""
+    s = str(val).strip()
+    if s in ('-', '', 'nan', 'None'):
+        return 0.0
+    if s.startswith('(') and s.endswith(')'):
+        return -float(s[1:-1].replace(',', ''))
+    try:
+        return float(s.replace(',', ''))
+    except ValueError:
+        return float('nan')
+
+
+def fetch_etf_flows(last_date: str) -> pd.DataFrame:
+    """
+    Fetches Bitcoin spot ETF daily flows from farside.co.uk.
+    Returns ETF_Flow_Total (net daily flow in $M) for all rows newer than last_date.
+    Available from 11 Jan 2024 onwards (ETF launch date).
+    Requires a browser User-Agent — the site returns 403 to plain requests.
+    """
+    start, _ = _date_range(last_date)
+    if not start:
+        print('ETF flows: already up to date.')
+        return pd.DataFrame()
+
+    try:
+        r = requests.get(
+            'https://farside.co.uk/bitcoin-etf-flow-all-data/',
+            headers=_FARSIDE_HEADERS, timeout=15,
+        )
+        r.raise_for_status()
+    except Exception as e:
+        print(f'ETF flows: fetch failed — {e}')
+        return pd.DataFrame()
+
+    try:
+        soup = BeautifulSoup(r.text, 'html.parser')
+        tables = soup.find_all('table')
+        # The data table is the largest one (>10 rows)
+        data_table = next(t for t in tables if len(t.find_all('tr')) > 10)
+        df = pd.read_html(StringIO(str(data_table)))[0]
+    except Exception as e:
+        print(f'ETF flows: parse failed — {e}')
+        return pd.DataFrame()
+
+    # Drop summary rows and the blank header row
+    df = df[df['Date'].notna()]
+    df = df[~df['Date'].isin(['Average', 'Maximum', 'Minimum', 'Total'])]
+
+    # Parse dates
+    df['date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+    df = df.dropna(subset=['date'])
+    df = df.set_index('date')
+    df.index = df.index.normalize()
+    df.index.name = 'date'
+
+    # Parse Total column with accounting notation
+    df[COL_ETF_FLOW] = df['Total'].apply(_parse_accounting)
+    result = df[[COL_ETF_FLOW]]
+
+    result = result[result.index >= pd.Timestamp(start)]
+    print(f'ETF flows: fetched {len(result)} new rows ({result.index.min().date()} → {result.index.max().date()}).')
+    return result
+
+
+# ─────────────────────────────────────────────
 # ENTRY POINT
 # ─────────────────────────────────────────────
 
@@ -281,6 +362,7 @@ def fetch_all(last_date: str) -> dict:
         'fear_greed':   fetch_fear_greed(last_date),
         'trends':       fetch_google_trends(last_date),
         'onchain':      fetch_onchain(last_date),
+        'etf_flows':    fetch_etf_flows(last_date),
     }
 
 

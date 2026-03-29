@@ -11,43 +11,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 from config import RESULTS_DIR
-
-# ─── Dark theme ───
-CHART_BG = "#0f1520"
-GRID_COLOR = "#1e2940"
-TEXT_COLOR = "#8899b4"
-CARD_COLORS = {
-    'blue': '#3b82f6', 'emerald': '#10b981', 'amber': '#f59e0b',
-    'rose': '#f43f5e', 'violet': '#8b5cf6',
-}
-DARK_LAYOUT = dict(
-    template='plotly_dark',
-    paper_bgcolor=CHART_BG, plot_bgcolor=CHART_BG,
-    font=dict(family="JetBrains Mono, monospace", color=TEXT_COLOR, size=11),
-    xaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
-    yaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
-    margin=dict(l=50, r=20, t=20, b=30),
-    legend=dict(orientation='h', y=1.02, font=dict(size=10)),
-)
-
-
-def styled_metric(label, value, delta=None, color='blue'):
-    border_color = CARD_COLORS.get(color, CARD_COLORS['blue'])
-    delta_html = ""
-    if delta is not None:
-        is_positive = str(delta).lstrip().startswith("+") or (not str(delta).lstrip().startswith("-"))
-        delta_color = "#10b981" if is_positive else "#f43f5e"
-        delta_html = f"<div style='font-size:12px;color:{delta_color};font-family:JetBrains Mono,monospace;'>{delta}</div>"
-    st.markdown(f"""
-    <div style="background:#171f30;border:1px solid #263354;border-left:3px solid {border_color};
-                border-radius:8px;padding:12px 14px;">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;
-                    color:#56657e;font-weight:600;margin-bottom:4px;">{label}</div>
-        <div style="font-size:20px;font-weight:700;color:#e8edf5;
-                    font-family:JetBrains Mono,monospace;">{value}</div>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
+from components import DARK_LAYOUT, styled_metric
 
 
 def load_results(filename: str) -> pd.DataFrame:
@@ -68,12 +32,34 @@ def render():
         "Non-overlapping predictions (every 7th day) for honest metrics."
     )
 
-    summary_path = os.path.join(RESULTS_DIR, 'phase3_full_summary.csv')
-    if os.path.exists(summary_path):
-        summary = pd.read_csv(summary_path, index_col=0)
-        st.dataframe(summary, use_container_width=True)
+    xgb_path = os.path.join(RESULTS_DIR, 'XGB_7d_walkforward_results.csv')
+    if os.path.exists(xgb_path):
+        _r = pd.read_csv(xgb_path, index_col=0, parse_dates=True)
+        _r['correct'] = ((_r['actual'] > 0) == (_r['predicted'] > 0)).astype(int)
+        _no = _r.iloc[::7]
+        _r2 = 1 - ((_no['actual'] - _no['predicted'])**2).sum() / ((_no['actual'] - _no['actual'].mean())**2).sum()
+        _naive = (_r['actual'] > 0).mean()
+        summary = pd.DataFrame([{
+            'Model': 'XGBoost (tuned)', 'Target': '7-day return',
+            'R²': round(_r2, 3),
+            'Direction Accuracy': f"{_r['correct'].mean():.1%}",
+            'Naive Baseline': f"{_naive:.1%}",
+            'Predictions': len(_no),
+            'Data range': f"{_r.index.min().date()} → {_r.index.max().date()}",
+        }, {
+            'Model': 'LSTM', 'Target': '7-day return',
+            'R²': -1.14, 'Direction Accuracy': '50.0%',
+            'Naive Baseline': f"{_naive:.1%}", 'Predictions': 74,
+            'Data range': '2022–2025 only',
+        }, {
+            'Model': 'GRU', 'Target': '7-day return',
+            'R²': -2.01, 'Direction Accuracy': '54.1%',
+            'Naive Baseline': f"{_naive:.1%}", 'Predictions': 74,
+            'Data range': '2022–2025 only',
+        }])
+        st.dataframe(summary, use_container_width=True, hide_index=True)
     else:
-        st.warning("No summary file found. Run model evaluation first.")
+        st.warning("No results file found. Run model evaluation first.")
 
     st.markdown("---")
 
@@ -141,14 +127,22 @@ def render():
 
     def classify_phase(date):
         d = pd.Timestamp(date)
-        if d < pd.Timestamp('2024-04-15'):
-            return 'ETF Rally (Jan-Apr 2024)'
+        if d < pd.Timestamp('2019-01-01'):
+            return 'Bear Market (2018)'
+        elif d < pd.Timestamp('2020-03-01'):
+            return 'Recovery (2019)'
+        elif d < pd.Timestamp('2020-11-01'):
+            return 'COVID Crash & Recovery (2020)'
+        elif d < pd.Timestamp('2022-01-01'):
+            return 'Bull Run (2021)'
+        elif d < pd.Timestamp('2023-01-01'):
+            return 'Bear Market (2022)'
+        elif d < pd.Timestamp('2024-04-15'):
+            return 'Recovery + ETF Rally (2023–Apr 2024)'
         elif d < pd.Timestamp('2024-11-01'):
-            return 'Consolidation (May-Oct 2024)'
-        elif d < pd.Timestamp('2025-02-01'):
-            return 'Post-Election (Nov 24-Jan 25)'
+            return 'Consolidation (May–Oct 2024)'
         else:
-            return 'Maturation (Feb-Jul 2025)'
+            return 'Post-Election & Correction (Nov 2024–2026)'
 
     xgb['phase'] = xgb.index.map(classify_phase)
 
@@ -203,8 +197,8 @@ def render():
         LSTM and GRU models performed at coin-flip level (~50% direction accuracy).
         This is a valuable negative result:
 
-        - **Insufficient data**: ~1,000 training rows is too few for recurrent neural networks
-          to learn meaningful temporal patterns.
+        - **Insufficient data**: even with ~3,000 training rows, recurrent neural networks
+          need far more sequences (typically 10,000+) to learn meaningful temporal patterns.
         - **Noise dominance**: Financial returns are extremely noisy. Tree-based models
           handle this better because they make discrete split decisions rather than trying
           to learn smooth continuous mappings.

@@ -12,33 +12,7 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'model'))
 from predict import predict_current, check_drift
-
-
-def styled_metric(label, value, delta=None, color='blue', invert_delta=False):
-    """KPI card with colored left border. invert_delta: red for positive, green for negative."""
-    colors = {
-        'blue': '#3b82f6', 'emerald': '#10b981', 'amber': '#f59e0b',
-        'rose': '#f43f5e', 'violet': '#8b5cf6', 'cyan': '#06b6d4',
-    }
-    border_color = colors.get(color, colors['blue'])
-    delta_html = ""
-    if delta is not None:
-        is_positive = str(delta).lstrip().startswith("+")
-        if invert_delta:
-            delta_color = "#f43f5e" if is_positive else "#10b981"
-        else:
-            delta_color = "#10b981" if is_positive else "#f43f5e"
-        delta_html = f"<div style='font-size:12px;color:{delta_color};font-family:JetBrains Mono,monospace;'>{delta}</div>"
-    st.markdown(f"""
-    <div style="background:#171f30;border:1px solid #263354;border-left:3px solid {border_color};
-                border-radius:8px;padding:12px 14px;">
-        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;
-                    color:#56657e;font-weight:600;margin-bottom:4px;">{label}</div>
-        <div style="font-size:20px;font-weight:700;color:#e8edf5;
-                    font-family:JetBrains Mono,monospace;">{value}</div>
-        {delta_html}
-    </div>
-    """, unsafe_allow_html=True)
+from components import styled_metric
 
 
 def render():
@@ -102,9 +76,9 @@ def render():
 
         confidence_colors = {'HIGH': 'emerald', 'MEDIUM': 'amber', 'LOW': 'rose'}
         confidence_descriptions = {
-            'HIGH': 'Large predicted move — historically 95% accurate on direction',
-            'MEDIUM': 'Moderate predicted move — historically 75% accurate',
-            'LOW': 'Small predicted move — historically 66% accurate',
+            'HIGH': 'Model predicts >5% move — 66% direction accuracy across 586 historical predictions',
+            'MEDIUM': 'Model predicts 2–5% move — 53% accuracy, modest edge over baseline',
+            'LOW': 'Model predicts <2% move — near coin-flip (51%). Model sees no strong signal.',
         }
 
         conf = prediction['confidence']
@@ -128,11 +102,14 @@ def render():
             (BTC, S&P 500, NASDAQ, Gold, Dollar Index) plus on-chain metrics and
             sentiment data.
 
-            Walk-forward validated: R² = 0.50, 76% direction accuracy on
-            non-overlapping 7-day predictions.
+            Walk-forward validated on **8 years of data (2018–2026)** across multiple
+            market regimes: **55% direction accuracy** vs 52% naive baseline (always
+            predict UP). High-confidence predictions (>5% predicted move) reach **66%
+            accuracy** across 586 historical windows.
 
-            **Confidence levels** are based on the size of the predicted move —
-            larger predicted moves have historically been much more accurate.
+            **Confidence** reflects the size of the predicted return — when the model
+            sees strong aligned signals it predicts a large move and is more accurate.
+            When signals are mixed it hedges toward zero (LOW confidence, ~coin flip).
             """
         )
 
