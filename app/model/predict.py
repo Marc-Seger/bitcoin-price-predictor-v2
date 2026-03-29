@@ -167,9 +167,9 @@ def update_outcomes():
         pred_price = row['btc_price_at_prediction']
         actual_return = (actual_price / pred_price) - 1
 
-        log.at[idx, 'actual_return'] = actual_return
-        log.at[idx, 'actual_price'] = actual_price
-        log.at[idx, 'correct'] = (actual_return > 0) == (row['predicted_return'] > 0)
+        log.at[idx, 'actual_return'] = float(actual_return)
+        log.at[idx, 'actual_price'] = float(actual_price)
+        log.at[idx, 'correct'] = float((actual_return > 0) == (row['predicted_return'] > 0))
         updated = True
 
     if updated:
