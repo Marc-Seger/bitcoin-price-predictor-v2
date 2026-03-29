@@ -6,6 +6,9 @@ on:
     - cron: '0 7 * * *'
   workflow_dispatch:  # Allow manual trigger from GitHub UI
 
+permissions:
+  contents: write
+
 jobs:
   update-and-predict:
     runs-on: ubuntu-latest
@@ -68,11 +71,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Create or update the 'latest' release with the new master_df
-          gh release upload latest data/full_data/master_df.csv --clobber 2>/dev/null || \
-          gh release create latest data/full_data/master_df.csv \
-            --title "Latest Data" \
-            --notes "Auto-updated master_df.csv from daily pipeline"
+          # Try upload with clobber; if it fails, delete and re-upload
+          gh release upload latest data/full_data/master_df.csv --clobber || {
+            echo "Upload failed, trying delete + re-upload..."
+            gh release delete-asset latest master_df.csv --yes 2>/dev/null || true
+            gh release upload latest data/full_data/master_df.csv
+          }
 
       - name: Commit trade log
         run: |
