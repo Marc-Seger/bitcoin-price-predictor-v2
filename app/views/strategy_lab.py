@@ -9,12 +9,48 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 from config import RESULTS_DIR, MASTER_DF_PATH
+
+# ─── Dark theme ───
+CHART_BG = "#0f1520"
+GRID_COLOR = "#1e2940"
+TEXT_COLOR = "#8899b4"
+CARD_COLORS = {
+    'blue': '#3b82f6', 'emerald': '#10b981', 'amber': '#f59e0b',
+    'rose': '#f43f5e', 'violet': '#8b5cf6',
+}
+DARK_LAYOUT = dict(
+    template='plotly_dark',
+    paper_bgcolor=CHART_BG, plot_bgcolor=CHART_BG,
+    font=dict(family="JetBrains Mono, monospace", color=TEXT_COLOR, size=11),
+    xaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
+    yaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
+    margin=dict(l=50, r=20, t=20, b=30),
+    legend=dict(orientation='h', y=1.02, font=dict(size=10)),
+)
+
+
+def styled_metric(label, value, delta=None, color='blue'):
+    border_color = CARD_COLORS.get(color, CARD_COLORS['blue'])
+    delta_html = ""
+    if delta is not None:
+        is_positive = str(delta).lstrip().startswith("+")
+        delta_color = "#10b981" if is_positive else "#f43f5e"
+        delta_html = f"<div style='font-size:12px;color:{delta_color};font-family:JetBrains Mono,monospace;'>{delta}</div>"
+    st.markdown(f"""
+    <div style="background:#171f30;border:1px solid #263354;border-left:3px solid {border_color};
+                border-radius:8px;padding:12px 14px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;
+                    color:#56657e;font-weight:600;margin-bottom:4px;">{label}</div>
+        <div style="font-size:20px;font-weight:700;color:#e8edf5;
+                    font-family:JetBrains Mono,monospace;">{value}</div>
+        {delta_html}
+    </div>
+    """, unsafe_allow_html=True)
 
 
 @st.cache_data
@@ -25,17 +61,24 @@ def load_predictions():
         return pd.DataFrame(), pd.DataFrame()
 
     preds = pd.read_csv(xgb_path, index_col=0, parse_dates=True)
-
     prices = pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
                          usecols=['date', 'Close_BTC', 'High_BTC', 'Low_BTC'],
                          low_memory=False)
     return preds, prices
 
 
+@st.cache_data
+def load_rsi_sma():
+    """Load RSI and SMA data once for strategy filters."""
+    return pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
+                       usecols=['date', 'RSI_Close_BTC', 'SMA_50_Close_BTC', 'Close_BTC'],
+                       low_memory=False)
+
+
 def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
                       strategy: str, leverage: float,
                       stop_loss_pct: float, take_profit_pct: float,
-                      confidence_filter: str, rsi_filter: bool) -> pd.DataFrame:
+                      confidence_filter: str) -> pd.DataFrame:
     """
     Simulate a trading strategy on historical predictions.
 
@@ -44,15 +87,12 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
     2. If yes, open a position with given leverage
     3. Check daily within the 7-day window for SL/TP/liquidation
     4. Close at end of window if SL/TP not hit
-
-    Returns a DataFrame with one row per trade.
     """
     trades = []
     initial_capital = 10000.0
     capital = initial_capital
-    peak_capital = initial_capital
 
-    # Non-overlapping: trade every 7th prediction
+    filter_df = load_rsi_sma()
     pred_dates = preds.index[::7]
 
     for pred_date in pred_dates:
@@ -62,7 +102,6 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
         predicted_return = preds.loc[pred_date, 'predicted']
         abs_pred = abs(predicted_return)
 
-        # Confidence classification
         if abs_pred > 0.05:
             confidence = 'HIGH'
         elif abs_pred > 0.02:
@@ -80,44 +119,31 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
             take_trade = predicted_return > 0 and confidence == 'HIGH'
 
         elif strategy == 'Model + RSI Filter':
-            # Need RSI data
-            rsi_col = 'RSI_Close_BTC'
-            rsi_df = pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
-                                  usecols=['date', rsi_col], low_memory=False)
-            if pred_date in rsi_df.index:
-                rsi_val = rsi_df.loc[pred_date, rsi_col]
-                take_trade = predicted_return > 0 and rsi_val < 70
+            if pred_date in filter_df.index:
+                rsi_val = filter_df.loc[pred_date, 'RSI_Close_BTC']
+                take_trade = predicted_return > 0 and (pd.isna(rsi_val) or rsi_val < 70)
             else:
                 take_trade = predicted_return > 0
 
         elif strategy == 'Trend Following':
-            sma_col = 'SMA_50_Close_BTC'
-            close_col = 'Close_BTC'
-            trend_df = pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
-                                    usecols=['date', sma_col, close_col], low_memory=False)
-            if pred_date in trend_df.index:
-                above_sma = trend_df.loc[pred_date, close_col] > trend_df.loc[pred_date, sma_col]
+            if pred_date in filter_df.index:
+                close_val = filter_df.loc[pred_date, 'Close_BTC']
+                sma_val = filter_df.loc[pred_date, 'SMA_50_Close_BTC']
+                above_sma = close_val > sma_val if pd.notna(sma_val) else True
                 take_trade = predicted_return > 0 and above_sma
             else:
                 take_trade = predicted_return > 0
 
-        # Confidence filter (applies on top of strategy)
         if confidence_filter != 'All' and confidence != confidence_filter:
             take_trade = False
 
         if not take_trade:
             trades.append({
-                'date': pred_date,
-                'action': 'SKIP',
-                'entry_price': None,
-                'exit_price': None,
-                'return_pct': 0,
-                'leveraged_return_pct': 0,
-                'pnl': 0,
-                'capital_after': capital,
-                'exit_reason': 'No signal',
-                'confidence': confidence,
-                'predicted_return': predicted_return,
+                'date': pred_date, 'action': 'SKIP',
+                'entry_price': None, 'exit_price': None,
+                'return_pct': 0, 'leveraged_return_pct': 0, 'pnl': 0,
+                'capital_after': capital, 'exit_reason': 'No signal',
+                'confidence': confidence, 'predicted_return': predicted_return,
             })
             continue
 
@@ -126,8 +152,6 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
             continue
 
         entry_price = prices.loc[pred_date, 'Close_BTC']
-
-        # Simulate daily price action over the next 7 days
         future_dates = prices.index[prices.index > pred_date][:7]
         if len(future_dates) == 0:
             continue
@@ -135,9 +159,6 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
         exit_price = entry_price
         exit_reason = 'End of window'
         liquidated = False
-
-        # Liquidation price: price at which leveraged loss = 100% of capital
-        # For a long: entry * (1 - 1/leverage)
         liquidation_price = entry_price * (1 - 1 / leverage) if leverage > 1 else 0
 
         for day in future_dates:
@@ -148,14 +169,12 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
             day_low = prices.loc[day, 'Low_BTC']
             day_close = prices.loc[day, 'Close_BTC']
 
-            # Check liquidation (low touches liquidation price)
             if leverage > 1 and day_low <= liquidation_price:
                 exit_price = liquidation_price
                 exit_reason = f'LIQUIDATED at ${liquidation_price:,.0f}'
                 liquidated = True
                 break
 
-            # Check stop loss
             if stop_loss_pct > 0:
                 sl_price = entry_price * (1 - stop_loss_pct / 100)
                 if day_low <= sl_price:
@@ -163,7 +182,6 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
                     exit_reason = f'Stop loss at ${sl_price:,.0f}'
                     break
 
-            # Check take profit
             if take_profit_pct > 0:
                 tp_price = entry_price * (1 + take_profit_pct / 100)
                 if day_high >= tp_price:
@@ -173,30 +191,22 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
 
             exit_price = day_close
 
-        # Calculate returns
         raw_return = (exit_price / entry_price) - 1
         leveraged_return = raw_return * leverage
 
         if liquidated:
-            pnl = -capital  # lose everything
+            pnl = -capital
             capital = 0
         else:
             pnl = capital * leveraged_return
             capital += pnl
 
-        peak_capital = max(peak_capital, capital)
-
         trades.append({
-            'date': pred_date,
-            'action': 'LONG',
-            'entry_price': entry_price,
-            'exit_price': exit_price,
-            'return_pct': raw_return * 100,
-            'leveraged_return_pct': leveraged_return * 100,
-            'pnl': pnl,
-            'capital_after': capital,
-            'exit_reason': exit_reason,
-            'confidence': confidence,
+            'date': pred_date, 'action': 'LONG',
+            'entry_price': entry_price, 'exit_price': exit_price,
+            'return_pct': raw_return * 100, 'leveraged_return_pct': leveraged_return * 100,
+            'pnl': pnl, 'capital_after': capital,
+            'exit_reason': exit_reason, 'confidence': confidence,
             'predicted_return': predicted_return,
         })
 
@@ -204,7 +214,7 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
 
 
 def render():
-    st.title("Strategy Lab")
+    st.markdown("<h1 style='margin-bottom:4px;'>Strategy Lab</h1>", unsafe_allow_html=True)
     st.caption("Backtest trading strategies using historical model predictions. No real money — educational only.")
 
     preds, prices = load_predictions()
@@ -229,8 +239,7 @@ def render():
     )
 
     leverage = st.sidebar.slider("Leverage", 1.0, 40.0, 1.0, 0.5,
-                                  help="1x = no leverage. Higher = more risk and reward. "
-                                       "At 40x, a 2.5% move against you = liquidation.")
+                                  help="1x = no leverage. Higher = more risk and reward.")
 
     stop_loss_pct = st.sidebar.slider("Stop Loss (%)", 0.0, 20.0, 0.0, 0.5,
                                        help="0 = disabled. Closes position if price drops by this %.")
@@ -244,7 +253,7 @@ def render():
     # ─── Run simulation ───
     trades = simulate_strategy(preds, prices, strategy, leverage,
                                 stop_loss_pct, take_profit_pct,
-                                confidence_filter, False)
+                                confidence_filter)
 
     if trades.empty:
         st.warning("No trades to display.")
@@ -254,82 +263,74 @@ def render():
     active_trades = trades[trades['action'] == 'LONG']
     skipped = trades[trades['action'] == 'SKIP']
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    final_capital = trades['capital_after'].iloc[-1]
+    total_return = (final_capital / 10000 - 1) * 100
 
-    with col1:
-        final_capital = trades['capital_after'].iloc[-1]
-        total_return = (final_capital / 10000 - 1) * 100
-        st.metric("Final Capital", f"${final_capital:,.0f}", f"{total_return:+.1f}%")
+    equity_curve = trades['capital_after']
+    peak = equity_curve.expanding().max()
+    drawdown = ((equity_curve - peak) / peak * 100)
+    max_dd = drawdown.min()
 
-    with col2:
-        if len(active_trades) > 0:
-            win_rate = (active_trades['leveraged_return_pct'] > 0).mean()
-            st.metric("Win Rate", f"{win_rate:.0%}")
-        else:
-            st.metric("Win Rate", "—")
+    liquidations = active_trades['exit_reason'].str.contains('LIQUIDATED').sum() if len(active_trades) > 0 else 0
 
-    with col3:
-        st.metric("Trades Taken", f"{len(active_trades)}/{len(trades)}")
+    cols = st.columns(5)
+    with cols[0]:
+        styled_metric("Final Capital", f"${final_capital:,.0f}", f"{total_return:+.1f}%",
+                       color='emerald' if total_return >= 0 else 'rose')
+    with cols[1]:
+        wr = f"{(active_trades['leveraged_return_pct'] > 0).mean():.0%}" if len(active_trades) > 0 else "—"
+        styled_metric("Win Rate", wr, color='blue')
+    with cols[2]:
+        styled_metric("Trades", f"{len(active_trades)}/{len(trades)}", color='violet')
+    with cols[3]:
+        styled_metric("Liquidations", str(liquidations),
+                       color='rose' if liquidations > 0 else 'emerald')
+    with cols[4]:
+        styled_metric("Max Drawdown", f"{max_dd:.1f}%", color='amber')
 
-    with col4:
-        liquidations = active_trades['exit_reason'].str.contains('LIQUIDATED').sum() if len(active_trades) > 0 else 0
-        st.metric("Liquidations", liquidations)
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
-    with col5:
-        # Max drawdown
-        equity_curve = trades['capital_after']
-        peak = equity_curve.expanding().max()
-        drawdown = ((equity_curve - peak) / peak * 100)
-        max_dd = drawdown.min()
-        st.metric("Max Drawdown", f"{max_dd:.1f}%")
-
-    st.markdown("---")
-
-    # ─── Tabs for detailed analysis ───
+    # ─── Tabs ───
     tab_equity, tab_trades, tab_stats = st.tabs(["Equity Curve", "Trade Log", "Statistics"])
 
     with tab_equity:
-        # Equity curve vs buy & hold
         fig = go.Figure()
 
-        # Strategy equity
         fig.add_trace(go.Scatter(
             x=trades['date'], y=trades['capital_after'],
             name=f'{strategy} ({leverage}x)',
-            line=dict(color='#2196f3', width=2),
+            line=dict(color='#3b82f6', width=2),
         ))
 
-        # Buy & hold comparison
+        # Buy & hold
         first_price = prices.loc[trades['date'].iloc[0], 'Close_BTC']
         bh_values = []
         for _, trade in trades.iterrows():
             if trade['date'] in prices.index:
-                current_price = prices.loc[trade['date'], 'Close_BTC']
-                bh_values.append(10000 * current_price / first_price)
+                bh_values.append(10000 * prices.loc[trade['date'], 'Close_BTC'] / first_price)
             else:
                 bh_values.append(bh_values[-1] if bh_values else 10000)
 
         fig.add_trace(go.Scatter(
             x=trades['date'], y=bh_values,
-            name='Buy & Hold', line=dict(color='#ff9800', width=2, dash='dash'),
+            name='Buy & Hold', line=dict(color='#f59e0b', width=2, dash='dash'),
         ))
 
-        # Mark liquidations
+        # Mark events
         liq_trades = active_trades[active_trades['exit_reason'].str.contains('LIQUIDATED')]
         if len(liq_trades) > 0:
             fig.add_trace(go.Scatter(
                 x=liq_trades['date'], y=liq_trades['capital_after'],
                 mode='markers', name='Liquidation',
-                marker=dict(color='red', size=12, symbol='x'),
+                marker=dict(color='#f43f5e', size=12, symbol='x'),
             ))
 
-        # Mark SL/TP hits
         sl_trades = active_trades[active_trades['exit_reason'].str.contains('Stop loss')]
         if len(sl_trades) > 0:
             fig.add_trace(go.Scatter(
                 x=sl_trades['date'], y=sl_trades['capital_after'],
                 mode='markers', name='Stop Loss',
-                marker=dict(color='#ef5350', size=8, symbol='triangle-down'),
+                marker=dict(color='#f43f5e', size=8, symbol='triangle-down'),
             ))
 
         tp_trades = active_trades[active_trades['exit_reason'].str.contains('Take profit')]
@@ -337,15 +338,10 @@ def render():
             fig.add_trace(go.Scatter(
                 x=tp_trades['date'], y=tp_trades['capital_after'],
                 mode='markers', name='Take Profit',
-                marker=dict(color='#26a69a', size=8, symbol='triangle-up'),
+                marker=dict(color='#10b981', size=8, symbol='triangle-up'),
             ))
 
-        fig.update_layout(
-            height=500, template='plotly_dark',
-            yaxis_title='Portfolio Value ($)',
-            legend=dict(orientation='h', y=1.05),
-            margin=dict(l=50, r=20, t=30, b=30),
-        )
+        fig.update_layout(height=400, yaxis_title='Portfolio Value ($)', **DARK_LAYOUT)
         st.plotly_chart(fig, use_container_width=True)
 
     with tab_trades:
@@ -360,7 +356,6 @@ def render():
             display['leveraged_return_pct'] = display['leveraged_return_pct'].apply(lambda x: f"{x:+.2f}%")
             display['pnl'] = display['pnl'].apply(lambda x: f"${x:+,.0f}")
             display['capital_after'] = display['capital_after'].apply(lambda x: f"${x:,.0f}")
-
             display.columns = ['Date', 'Confidence', 'Entry', 'Exit', 'Return',
                                'Leveraged Return', 'P&L', 'Capital', 'Exit Reason']
             st.dataframe(display.iloc[::-1], use_container_width=True, hide_index=True)
@@ -378,14 +373,13 @@ def render():
 
                 stats = {
                     'Total Trades': len(active_trades),
-                    'Winning Trades': len(wins),
-                    'Losing Trades': len(losses),
+                    'Winning': len(wins),
+                    'Losing': len(losses),
                     'Win Rate': f"{len(wins)/len(active_trades):.0%}" if len(active_trades) > 0 else "—",
                     'Avg Win': f"{wins['leveraged_return_pct'].mean():+.2f}%" if len(wins) > 0 else "—",
                     'Avg Loss': f"{losses['leveraged_return_pct'].mean():+.2f}%" if len(losses) > 0 else "—",
                     'Best Trade': f"{active_trades['leveraged_return_pct'].max():+.2f}%",
                     'Worst Trade': f"{active_trades['leveraged_return_pct'].min():+.2f}%",
-                    'Avg Trade': f"{active_trades['leveraged_return_pct'].mean():+.2f}%",
                 }
                 st.dataframe(pd.DataFrame(stats.items(), columns=['Metric', 'Value']),
                              use_container_width=True, hide_index=True)
@@ -393,14 +387,8 @@ def render():
             with col_stats2:
                 st.markdown("**Risk Metrics**")
                 returns_series = active_trades['leveraged_return_pct'] / 100
+                sharpe = (returns_series.mean() / returns_series.std()) * np.sqrt(52) if returns_series.std() > 0 else 0
 
-                # Sharpe ratio (annualized, assuming ~52 trades per year with weekly)
-                if returns_series.std() > 0:
-                    sharpe = (returns_series.mean() / returns_series.std()) * np.sqrt(52)
-                else:
-                    sharpe = 0
-
-                # Profit factor
                 gross_profit = wins['pnl'].sum() if len(wins) > 0 else 0
                 gross_loss = abs(losses['pnl'].sum()) if len(losses) > 0 else 1
                 profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
@@ -422,13 +410,12 @@ def render():
             fig_hist = go.Figure()
             fig_hist.add_trace(go.Histogram(
                 x=active_trades['leveraged_return_pct'],
-                nbinsx=30, marker_color='#2196f3', opacity=0.7,
+                nbinsx=30, marker_color='#3b82f6', opacity=0.7,
                 name='Trade Returns',
             ))
             fig_hist.add_vline(x=0, line_dash="dash", line_color="white", opacity=0.5)
             fig_hist.update_layout(
-                height=300, template='plotly_dark',
-                xaxis_title='Return (%)', yaxis_title='Count',
-                margin=dict(l=50, r=20, t=10, b=30),
+                height=280, xaxis_title='Return (%)', yaxis_title='Count',
+                **DARK_LAYOUT,
             )
             st.plotly_chart(fig_hist, use_container_width=True)
