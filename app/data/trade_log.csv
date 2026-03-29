@@ -1,0 +1,2 @@
+prediction_date,target_date,predicted_return,direction,confidence,btc_price_at_prediction,predicted_price,actual_return,actual_price,correct,logged_at
+2025-07-25,2025-08-01,-0.0368596650660038,DOWN,MEDIUM,117635.8828125,113299.86050469289,-0.036687758631258394,113320.0859375,1.0,2026-03-29 00:39
