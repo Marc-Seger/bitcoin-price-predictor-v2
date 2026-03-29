@@ -8,7 +8,7 @@ import streamlit as st
 
 
 def render():
-    st.title("Documentation")
+    st.markdown("<h1 style='margin-bottom:4px;'>Documentation</h1>", unsafe_allow_html=True)
 
     tab_howto, tab_data, tab_model, tab_limits = st.tabs([
         "How to Use", "Data Sources", "Model Methodology", "Limitations & Flaws"
@@ -30,7 +30,7 @@ def render():
         **2. 7-Day Forecast**
         See the model's current prediction: will BTC go up or down over the next 7 days?
         The confidence level tells you how reliable the prediction is likely to be.
-        Click "Log this prediction" to track it in the paper trading log.
+        Predictions are logged automatically daily via GitHub Actions.
 
         **3. Strategy Lab**
         Backtest trading strategies using historical model predictions. Adjust:

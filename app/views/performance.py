@@ -5,11 +5,49 @@ Model Performance page — Evaluation results, charts, regime analysis.
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.graph_objects as go
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 from config import RESULTS_DIR
+
+# ─── Dark theme ───
+CHART_BG = "#0f1520"
+GRID_COLOR = "#1e2940"
+TEXT_COLOR = "#8899b4"
+CARD_COLORS = {
+    'blue': '#3b82f6', 'emerald': '#10b981', 'amber': '#f59e0b',
+    'rose': '#f43f5e', 'violet': '#8b5cf6',
+}
+DARK_LAYOUT = dict(
+    template='plotly_dark',
+    paper_bgcolor=CHART_BG, plot_bgcolor=CHART_BG,
+    font=dict(family="JetBrains Mono, monospace", color=TEXT_COLOR, size=11),
+    xaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
+    yaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
+    margin=dict(l=50, r=20, t=20, b=30),
+    legend=dict(orientation='h', y=1.02, font=dict(size=10)),
+)
+
+
+def styled_metric(label, value, delta=None, color='blue'):
+    border_color = CARD_COLORS.get(color, CARD_COLORS['blue'])
+    delta_html = ""
+    if delta is not None:
+        is_positive = str(delta).lstrip().startswith("+") or (not str(delta).lstrip().startswith("-"))
+        delta_color = "#10b981" if is_positive else "#f43f5e"
+        delta_html = f"<div style='font-size:12px;color:{delta_color};font-family:JetBrains Mono,monospace;'>{delta}</div>"
+    st.markdown(f"""
+    <div style="background:#171f30;border:1px solid #263354;border-left:3px solid {border_color};
+                border-radius:8px;padding:12px 14px;">
+        <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;
+                    color:#56657e;font-weight:600;margin-bottom:4px;">{label}</div>
+        <div style="font-size:20px;font-weight:700;color:#e8edf5;
+                    font-family:JetBrains Mono,monospace;">{value}</div>
+        {delta_html}
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def load_results(filename: str) -> pd.DataFrame:
@@ -20,11 +58,11 @@ def load_results(filename: str) -> pd.DataFrame:
 
 
 def render():
-    st.title("Model Performance")
+    st.markdown("<h1 style='margin-bottom:4px;'>Model Performance</h1>", unsafe_allow_html=True)
     st.caption("Walk-forward validation results — every prediction made without seeing future data.")
 
     # ─── Model comparison table ───
-    st.subheader("Model Comparison")
+    st.markdown("### Model Comparison")
     st.markdown(
         "All models evaluated with walk-forward validation on 7-day returns. "
         "Non-overlapping predictions (every 7th day) for honest metrics."
@@ -40,30 +78,66 @@ def render():
     st.markdown("---")
 
     # ─── XGBoost deep dive ───
-    st.subheader("XGBoost 7-Day Predictions vs Actual")
+    st.markdown("### XGBoost 7-Day Predictions vs Actual")
 
     xgb = load_results('XGB_7d_walkforward_results.csv')
     if xgb.empty:
         st.warning("No XGBoost 7-day results found.")
         return
 
-    # Predictions vs actual chart
-    chart_data = xgb[['actual', 'predicted']].copy()
-    chart_data.columns = ['Actual Return', 'Predicted Return']
-    st.line_chart(chart_data)
+    # KPI summary
+    xgb['correct'] = ((xgb['actual'] > 0) == (xgb['predicted'] > 0)).astype(int)
+    non_overlap = xgb.iloc[::7]
+    r2 = 1 - ((non_overlap['actual'] - non_overlap['predicted'])**2).sum() / ((non_overlap['actual'] - non_overlap['actual'].mean())**2).sum()
+    dir_acc = non_overlap['correct'].mean()
 
-    # ─── Direction accuracy over time (rolling) ───
-    st.subheader("Rolling Direction Accuracy")
+    cols = st.columns(4)
+    with cols[0]:
+        styled_metric("R-squared", f"{r2:.3f}", color='blue')
+    with cols[1]:
+        styled_metric("Direction Accuracy", f"{dir_acc:.1%}", color='emerald')
+    with cols[2]:
+        styled_metric("Total Predictions", f"{len(xgb):,}", color='violet')
+    with cols[3]:
+        styled_metric("Non-overlapping", f"{len(non_overlap)}", color='amber')
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+    # Predictions vs actual chart
+    fig_pred = go.Figure()
+    fig_pred.add_trace(go.Scatter(
+        x=xgb.index, y=xgb['actual'],
+        name='Actual Return', line=dict(color='#e8edf5', width=1.5),
+    ))
+    fig_pred.add_trace(go.Scatter(
+        x=xgb.index, y=xgb['predicted'],
+        name='Predicted Return', line=dict(color='#3b82f6', width=1.5),
+    ))
+    fig_pred.add_hline(y=0, line_dash="dash", line_color="#56657e", opacity=0.5)
+    fig_pred.update_layout(height=300, yaxis_title='7-Day Return', **DARK_LAYOUT)
+    st.plotly_chart(fig_pred, use_container_width=True)
+
+    # ─── Rolling direction accuracy ───
+    st.markdown("### Rolling Direction Accuracy")
     st.caption("30-day rolling window — shows how accuracy varies over time.")
 
-    xgb['correct'] = ((xgb['actual'] > 0) == (xgb['predicted'] > 0)).astype(int)
     rolling_acc = xgb['correct'].rolling(30).mean()
-    st.line_chart(rolling_acc, y_label="Accuracy", x_label="Date")
+    fig_roll = go.Figure()
+    fig_roll.add_trace(go.Scatter(
+        x=rolling_acc.index, y=rolling_acc.values,
+        fill='tozeroy', fillcolor='rgba(16,185,129,0.15)',
+        line=dict(color='#10b981', width=1.5),
+        name='Accuracy',
+    ))
+    fig_roll.add_hline(y=0.5, line_dash="dash", line_color="#f43f5e", opacity=0.5,
+                        annotation_text="Coin flip")
+    fig_roll.update_layout(height=250, yaxis_title='Accuracy', yaxis_range=[0, 1], **DARK_LAYOUT)
+    st.plotly_chart(fig_roll, use_container_width=True)
 
     st.markdown("---")
 
     # ─── Market regime breakdown ───
-    st.subheader("Performance by Market Phase")
+    st.markdown("### Performance by Market Phase")
 
     def classify_phase(date):
         d = pd.Timestamp(date)
@@ -94,10 +168,10 @@ def render():
     st.markdown("---")
 
     # ─── Confidence vs accuracy ───
-    st.subheader("Confidence vs Accuracy")
+    st.markdown("### Confidence vs Accuracy")
     st.markdown(
         "When the model predicts a **larger move**, it's significantly more accurate. "
-        "This means high-confidence predictions are much more reliable."
+        "High-confidence predictions are much more reliable."
     )
 
     xgb['abs_pred'] = xgb['predicted'].abs()
@@ -123,7 +197,7 @@ def render():
     st.markdown("---")
 
     # ─── Why LSTM/GRU failed ───
-    st.subheader("Why Deep Learning Failed Here")
+    st.markdown("### Why Deep Learning Failed Here")
     st.markdown(
         """
         LSTM and GRU models performed at coin-flip level (~50% direction accuracy).
