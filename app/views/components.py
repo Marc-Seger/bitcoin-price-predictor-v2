@@ -51,7 +51,7 @@ def styled_metric(label, value, delta=None, color='blue', invert_delta=False):
     border_color = CARD_COLORS.get(color, CARD_COLORS['blue'])
     delta_html = ""
     if delta is not None:
-        is_positive = str(delta).lstrip().startswith("+")
+        is_positive = '+' in str(delta)
         if invert_delta:
             delta_color = "#f43f5e" if is_positive else "#10b981"
         else:
@@ -62,7 +62,7 @@ def styled_metric(label, value, delta=None, color='blue', invert_delta=False):
         )
     st.markdown(f"""
     <div style="background:#171f30;border:1px solid #263354;border-left:3px solid {border_color};
-                border-radius:8px;padding:12px 14px;">
+                border-radius:8px;padding:12px 14px;min-height:90px;">
         <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;
                     color:#56657e;font-weight:600;margin-bottom:4px;">{label}</div>
         <div style="font-size:20px;font-weight:700;color:#e8edf5;

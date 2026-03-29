@@ -189,11 +189,6 @@ def render():
 
     date_from = preds.index.min().strftime('%b %Y')
     date_to   = preds.index.max().strftime('%b %Y')
-    st.info(
-        f"Backtest period: **{date_from} → {date_to}** — based on walk-forward predictions "
-        f"(model trained only on past data at each point, no future data used). "
-        f"Results reflect actual market conditions over this period."
-    )
 
     # ─── Strategy controls ───
     st.sidebar.markdown("### Strategy Settings")
@@ -391,3 +386,10 @@ def render():
                 **DARK_LAYOUT,
             )
             st.plotly_chart(fig_hist, use_container_width=True)
+
+    st.markdown("---")
+    st.info(
+        f"Backtest period: **{date_from} → {date_to}** — based on walk-forward predictions "
+        f"(model trained only on past data at each point, no future data used). "
+        f"Results reflect actual market conditions over this period."
+    )
