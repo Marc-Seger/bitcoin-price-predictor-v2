@@ -18,18 +18,8 @@ from components import styled_metric
 def render():
     st.markdown("<h1 style='margin-bottom:4px;'>7-Day Bitcoin Forecast</h1>", unsafe_allow_html=True)
 
-    # Drift warning banner
-    drift = check_drift()
-    if drift['status'] == 'WARNING':
-        st.error(f"Model drift detected: {drift['message']}")
-    elif drift['status'] == 'OK':
-        st.success(drift['message'])
-    else:
-        st.info(drift['message'])
-
-    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
-
     # Current prediction
+    drift = check_drift()
     prediction = predict_current()
 
     if 'error' in prediction:
@@ -118,3 +108,11 @@ def render():
         "Predictions are logged automatically via GitHub Actions daily at 07:00 UTC. "
         "Visit the Strategy Lab to see historical backtest results."
     )
+
+    # Drift banner at the bottom so it doesn't dominate the page
+    if drift['status'] == 'WARNING':
+        st.error(f"Model drift detected: {drift['message']}")
+    elif drift['status'] == 'OK':
+        st.success(drift['message'])
+    else:
+        st.info(drift['message'])

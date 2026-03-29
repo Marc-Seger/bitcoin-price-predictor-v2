@@ -16,7 +16,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'src'))
 from config import MASTER_DF_PATH, ASSETS, COL_FEAR_GREED, COL_GOOGLE_TRENDS, COL_ETF_FLOW
-from components import CARD_COLORS, ASSET_COLORS, DARK_LAYOUT, CHART_BG, styled_metric
+from components import CARD_COLORS, ASSET_COLORS, DARK_LAYOUT, CHART_BG, TEXT_COLOR, styled_metric
 
 
 @st.cache_data(ttl=300)
@@ -29,16 +29,14 @@ def render():
 
     df = load_data()
 
-    # ─── Asset selector (top, controls everything) ───
     ASSET_LABELS = {'BTC': 'Bitcoin (BTC)', 'SP500': 'S&P 500', 'NASDAQ': 'NASDAQ',
                     'GOLD': 'Gold', 'DXY': 'Dollar Index'}
-    asset = st.selectbox(
-        "Asset", ASSETS, index=0, key="dash_asset",
-        format_func=lambda x: ASSET_LABELS.get(x, x),
-    )
+
+    # Asset is stored in session state; Price tab owns the selector
+    asset = st.session_state.get('dash_asset', 'BTC')
     close_col = f'Close_{asset}'
 
-    # ─── KPI cards (dynamic per asset, using latest available data) ───
+    # ─── KPI cards (always visible, driven by asset selected in Price tab) ───
     valid = df.dropna(subset=[close_col])
     if valid.empty:
         st.warning(f"No data available for {ASSET_LABELS.get(asset, asset)}.")
@@ -73,7 +71,7 @@ def render():
         rsi_val = latest.get(rsi_col) if rsi_col in df.columns else None
         if pd.notna(rsi_val):
             label = "Overbought" if rsi_val > 70 else ("Oversold" if rsi_val < 30 else "Neutral")
-            styled_metric("RSI (14)", f"{rsi_val:.0f} — {label}", color='violet')
+            styled_metric("RSI (current)", f"{rsi_val:.0f} — {label}", color='violet')
         else:
             styled_metric("RSI (14)", "—", color='violet')
 
@@ -86,6 +84,16 @@ def render():
     # TAB 1: Price & Indicators
     # ══════════════════════════════════════════
     with tab_price:
+        # Asset selector lives here — drives KPI cards above via session_state
+        asset = st.selectbox(
+            "Asset",
+            list(ASSET_LABELS.keys()),
+            index=list(ASSET_LABELS.keys()).index(st.session_state.get('dash_asset', 'BTC')),
+            format_func=lambda a: ASSET_LABELS[a],
+            key='dash_asset',
+        )
+        close_col = f'Close_{asset}'
+
         # Row 1: Overlays + Subplots
         col_overlay, col_sub = st.columns(2)
         with col_overlay:
@@ -96,7 +104,7 @@ def render():
             )
         with col_sub:
             subplots_on = st.multiselect(
-                "Subplots", ["RSI", "MACD"], default=[]
+                "Subplots", ["RSI", "MACD"], default=["RSI"]
             )
 
         # Row 2: Timeframe + Log scale + Volume toggle
@@ -108,8 +116,15 @@ def render():
         with col_vol:
             show_volume = st.checkbox("Volume", value=True)
 
-        tf_days = {'1M': 30, '3M': 90, '6M': 180, '1Y': 365, '2Y': 730, 'All': len(df)}
-        plot_df = df.tail(tf_days[timeframe]).copy()
+        # Full dataset passed to Plotly — initial view window set via xaxis.range
+        # so scroll-out reveals data beyond the selected timeframe
+        plot_df = df.copy()
+        tf_days_map = {'1M': 30, '3M': 90, '6M': 180, '1Y': 365, '2Y': 730}
+        if timeframe in tf_days_map:
+            x_start = df.index[-1] - pd.Timedelta(days=tf_days_map[timeframe])
+        else:
+            x_start = df.index[0]
+        x_end = df.index[-1]
 
         # Build chart — volume overlays on price with secondary y-axis
         n_subs = 1 + len(subplots_on)
@@ -127,31 +142,64 @@ def render():
         # ─── Volume bars (behind price, on secondary y-axis) ───
         vol_col = f'Volume_{asset}'
         open_col = f'Open_{asset}'
+        n_visible = (plot_df.index >= x_start).sum()
+
         if show_volume and vol_col in plot_df.columns:
-            colors = ['rgba(16,185,129,0.3)' if c >= o else 'rgba(244,63,94,0.3)'
-                      for c, o in zip(
-                          plot_df[close_col].fillna(0),
-                          plot_df.get(open_col, plot_df[close_col]).fillna(0)
-                      )]
+            vol_series = plot_df[vol_col].fillna(0)
+            open_series = plot_df.get(open_col, plot_df[close_col]).fillna(0)
+            close_series = plot_df[close_col].fillna(0)
+
+            # Resample to weekly when >600 visible points to avoid sub-pixel bars
+            if n_visible > 600:
+                # W-FRI: bars land on Fridays (trading days for all assets)
+                # avoids Sunday labels being hidden by rangebreaks on non-BTC assets
+                vol_plot = vol_series.resample('W-FRI').sum()
+                o_plot = open_series.resample('W-FRI').first().fillna(0)
+                c_plot = close_series.resample('W-FRI').last().fillna(0)
+            else:
+                vol_plot = vol_series
+                o_plot = open_series
+                c_plot = close_series
+
+            bar_colors = ['#10b981' if c >= o else '#f43f5e'
+                          for c, o in zip(c_plot, o_plot)]
             fig.add_trace(go.Bar(
-                x=plot_df.index, y=plot_df[vol_col],
-                name='Volume', marker_color=colors, opacity=0.4,
+                x=vol_plot.index, y=vol_plot,
+                name='Volume', marker_color=bar_colors, opacity=0.4,
             ), row=1, col=1, secondary_y=True)
+            # Scale to 95th percentile of visible window
+            visible_vol = vol_plot.loc[x_start:x_end]
+            ref_vol = (visible_vol if not visible_vol.empty else vol_plot).quantile(0.95)
+            fig.update_yaxes(
+                secondary_y=True, row=1, col=1,
+                range=[0, ref_vol * 4],
+                showgrid=False, showticklabels=False, title_text="",
+            )
 
         # ─── Candlestick / line chart (primary y-axis) ───
         high_col = f'High_{asset}'
         low_col = f'Low_{asset}'
 
         if all(c in plot_df.columns for c in [open_col, high_col, low_col, close_col]):
+            if n_visible > 600:
+                candle_df = pd.DataFrame({
+                    open_col:  plot_df[open_col].resample('W-FRI').first(),
+                    high_col:  plot_df[high_col].resample('W-FRI').max(),
+                    low_col:   plot_df[low_col].resample('W-FRI').min(),
+                    close_col: plot_df[close_col].resample('W-FRI').last(),
+                }).dropna()
+            else:
+                candle_df = plot_df
             fig.add_trace(go.Candlestick(
-                x=plot_df.index,
-                open=plot_df[open_col], high=plot_df[high_col],
-                low=plot_df[low_col], close=plot_df[close_col],
+                x=candle_df.index,
+                open=candle_df[open_col], high=candle_df[high_col],
+                low=candle_df[low_col], close=candle_df[close_col],
                 name=asset, increasing_line_color='#10b981', decreasing_line_color='#f43f5e',
             ), row=1, col=1, secondary_y=False)
         elif close_col in plot_df.columns:
+            src = plot_df[close_col].resample('W-FRI').last() if n_visible > 600 else plot_df[close_col]
             fig.add_trace(go.Scatter(
-                x=plot_df.index, y=plot_df[close_col],
+                x=src.index, y=src,
                 name=asset, line=dict(color=ASSET_COLORS.get(asset, '#3b82f6'), width=2),
             ), row=1, col=1, secondary_y=False)
 
@@ -180,14 +228,6 @@ def render():
                         line=dict(width=1, color='rgba(139,92,246,0.5)'),
                         fill='tonexty', fillcolor='rgba(139,92,246,0.08)',
                     ), row=1, col=1, secondary_y=False)
-
-        # Style volume axis (right side, no grid)
-        fig.update_yaxes(
-            secondary_y=True, row=1, col=1,
-            title_text="Vol", showgrid=False,
-            tickfont=dict(size=9, color='#56657e'),
-            title_font=dict(size=9, color='#56657e'),
-        )
 
         # ─── Subplots (RSI, MACD) ───
         subplot_row = 2
@@ -227,16 +267,42 @@ def render():
                 fig.update_yaxes(title_text="MACD", row=subplot_row, col=1)
                 subplot_row += 1
 
-        # Log scale for price axis
+        # Weekend rangebreaks for non-crypto assets (markets closed Sat–Mon)
+        if asset != 'BTC':
+            fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+
+        # Set price y-axis range to visible window (skip when log scale — let Plotly auto-range)
+        hi_col = f'High_{asset}' if f'High_{asset}' in plot_df.columns else close_col
+        lo_col = f'Low_{asset}' if f'Low_{asset}' in plot_df.columns else close_col
+        window = plot_df.loc[x_start:x_end]
         if log_scale:
-            fig.update_yaxes(type="log", row=1, col=1, secondary_y=False)
+            if not window.empty:
+                p_min = max(window[lo_col].dropna().min(), 1)
+                p_max = window[hi_col].dropna().max()
+                # Plotly log-axis range is in log10 units
+                fig.update_layout(yaxis=dict(
+                    type='log',
+                    range=[np.log10(p_min * 0.97), np.log10(p_max * 1.03)],
+                ))
+            else:
+                fig.update_layout(yaxis=dict(type='log'))
+        else:
+            if not window.empty:
+                p_min = window[lo_col].min()
+                p_max = window[hi_col].max()
+                pad = (p_max - p_min) * 0.05
+                fig.update_layout(yaxis=dict(range=[p_min - pad, p_max + pad]))
+
+        fig.update_xaxes(range=[x_start, x_end])
 
         fig.update_layout(
             height=150 + 220 * n_subs,
             xaxis_rangeslider_visible=False,
+            barmode='overlay',
+            title=dict(text=ASSET_LABELS.get(asset, asset), font=dict(size=14, color=TEXT_COLOR), x=0),
             **DARK_LAYOUT,
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
     # ══════════════════════════════════════════
     # TAB 2: Sentiment
@@ -267,10 +333,15 @@ def render():
                         fg_label, fg_color = lbl, clr
                         break
 
+                # Label rendered outside Plotly to avoid overlapping the arc
+                st.markdown(
+                    f"<p style='text-align:center; font-size:15px; font-weight:600; "
+                    f"color:{fg_color}; margin-bottom:0;'>{fg_label}</p>",
+                    unsafe_allow_html=True,
+                )
                 gauge_fig = go.Figure(go.Indicator(
                     mode="gauge+number",
                     value=fg_val,
-                    title={'text': fg_label, 'font': {'size': 16, 'color': fg_color}},
                     gauge={
                         'axis': {'range': [0, 100], 'tickcolor': TEXT_COLOR},
                         'bar': {'color': fg_color},
@@ -284,7 +355,7 @@ def render():
                         ],
                     },
                 ))
-                gauge_fig.update_layout(height=220, **{k: v for k, v in DARK_LAYOUT.items() if k != 'legend'})
+                gauge_fig.update_layout(height=200, **{k: v for k, v in DARK_LAYOUT.items() if k != 'legend'})
                 st.plotly_chart(gauge_fig, use_container_width=True)
             else:
                 st.info("Fear & Greed data not available.")

@@ -57,7 +57,39 @@ def render():
             'Naive Baseline': f"{_naive:.1%}", 'Predictions': 74,
             'Data range': '2022–2025 only',
         }])
-        st.dataframe(summary, use_container_width=True, hide_index=True)
+        model_colors = {'XGBoost (tuned)': '#3b82f6', 'LSTM': '#56657e', 'GRU': '#56657e'}
+        for _, row in summary.iterrows():
+            color = model_colors.get(row['Model'], '#56657e')
+            r2_val = float(row['R²'])
+            r2_color = '#10b981' if r2_val > 0 else '#f43f5e'
+            dir_color = '#10b981' if float(row['Direction Accuracy'].strip('%')) > float(row['Naive Baseline'].strip('%')) else '#f43f5e'
+            st.markdown(f"""
+            <div style="background:#171f30;border:1px solid #263354;border-left:3px solid {color};
+                        border-radius:8px;padding:12px 16px;margin-bottom:8px;
+                        display:flex;gap:32px;align-items:center;">
+                <div style="min-width:140px;">
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:#56657e;font-weight:600;">Model</div>
+                    <div style="font-size:15px;font-weight:700;color:#e8edf5;font-family:JetBrains Mono,monospace;">{row['Model']}</div>
+                    <div style="font-size:11px;color:#56657e;">{row['Data range']}</div>
+                </div>
+                <div style="min-width:80px;">
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:#56657e;font-weight:600;">R²</div>
+                    <div style="font-size:18px;font-weight:700;color:{r2_color};font-family:JetBrains Mono,monospace;">{row['R²']}</div>
+                </div>
+                <div style="min-width:120px;">
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:#56657e;font-weight:600;">Direction Accuracy</div>
+                    <div style="font-size:18px;font-weight:700;color:{dir_color};font-family:JetBrains Mono,monospace;">{row['Direction Accuracy']}</div>
+                </div>
+                <div style="min-width:100px;">
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:#56657e;font-weight:600;">Naive Baseline</div>
+                    <div style="font-size:18px;font-weight:700;color:#8899b4;font-family:JetBrains Mono,monospace;">{row['Naive Baseline']}</div>
+                </div>
+                <div style="min-width:80px;">
+                    <div style="font-size:10px;text-transform:uppercase;letter-spacing:0.8px;color:#56657e;font-weight:600;">Predictions</div>
+                    <div style="font-size:18px;font-weight:700;color:#8899b4;font-family:JetBrains Mono,monospace;">{row['Predictions']}</div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
     else:
         st.warning("No results file found. Run model evaluation first.")
 
