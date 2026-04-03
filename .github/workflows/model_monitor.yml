@@ -1,0 +1,158 @@
+name: Weekly Model Health Monitor
+
+on:
+  schedule:
+    # Run every Monday at 08:00 UTC (after daily pipeline at 07:00)
+    - cron: '0 8 * * 1'
+  workflow_dispatch:  # Allow manual trigger from GitHub UI
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install pandas numpy
+
+      - name: Run health checks
+        id: checks
+        run: |
+          python - << 'EOF'
+          import pandas as pd
+          import numpy as np
+          import json
+          import os
+          from datetime import datetime, timezone
+
+          issues = []
+          details = []
+          today = datetime.now(timezone.utc)
+
+          # ── 1. Trade log: rolling 30-day direction accuracy ──────────────────
+          trade_log_path = "app/data/trade_log.csv"
+          try:
+              tl = pd.read_csv(trade_log_path, parse_dates=["prediction_date", "target_date"])
+              # Only rows where outcome is known (actual_return filled)
+              resolved = tl.dropna(subset=["actual_return", "correct"])
+              resolved = resolved.sort_values("prediction_date")
+
+              if len(resolved) >= 10:
+                  last30 = resolved[
+                      pd.to_datetime(resolved["target_date"]) >= (today - pd.Timedelta(days=30))
+                  ]
+                  if len(last30) >= 5:
+                      rolling_acc = last30["correct"].mean()
+                      naive_acc = (resolved["actual_return"] > 0).mean()
+                      details.append(f"Rolling 30d direction accuracy: {rolling_acc:.1%} (naive baseline: {naive_acc:.1%})")
+                      if rolling_acc < naive_acc:
+                          issues.append(
+                              f"**Direction accuracy dropped below naive baseline**: "
+                              f"{rolling_acc:.1%} vs {naive_acc:.1%} naive. "
+                              f"Consider retuning the model."
+                          )
+                  else:
+                      details.append(f"Rolling 30d accuracy: only {len(last30)} resolved predictions in last 30 days — not enough to evaluate")
+              else:
+                  details.append(f"Trade log: only {len(resolved)} resolved predictions total — need ≥10 to evaluate accuracy")
+          except Exception as e:
+              details.append(f"Trade log check failed: {e}")
+
+          # ── 2. Days since last retune ─────────────────────────────────────────
+          params_path = "results/tuning/xgboost_best_params_v2.json"
+          try:
+              mtime = os.path.getmtime(params_path)
+              last_tuned = datetime.fromtimestamp(mtime, tz=timezone.utc)
+              days_since = (today - last_tuned).days
+              details.append(f"Days since last retune: {days_since}d (last: {last_tuned.strftime('%Y-%m-%d')})")
+              if days_since > 90:
+                  issues.append(
+                      f"**Model params are {days_since} days old** (threshold: 90 days). "
+                      f"Consider running `tune_xgboost.py` to refresh hyperparameters."
+                  )
+          except Exception as e:
+              details.append(f"Retune date check failed: {e}")
+
+          # ── 3. Trade log staleness (daily pipeline health proxy) ──────────────
+          try:
+              tl2 = pd.read_csv(trade_log_path, parse_dates=["prediction_date"])
+              if len(tl2) > 0:
+                  last_pred = pd.to_datetime(tl2["prediction_date"]).max()
+                  days_stale = (today - last_pred.tz_localize("UTC")).days
+                  details.append(f"Last prediction logged: {last_pred.date()} ({days_stale}d ago)")
+                  if days_stale > 3:
+                      issues.append(
+                          f"**No new prediction in {days_stale} days** — daily pipeline may be failing. "
+                          f"Check the 'Daily Data Update & Prediction' workflow for errors."
+                      )
+              else:
+                  details.append("Trade log is empty — no predictions logged yet")
+          except Exception as e:
+              details.append(f"Pipeline staleness check failed: {e}")
+
+          # ── Output for next step ──────────────────────────────────────────────
+          has_issues = len(issues) > 0
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"has_issues={'true' if has_issues else 'false'}\n")
+
+          issue_body = "\n\n".join([
+              "## Weekly Model Health Report",
+              f"**Date**: {today.strftime('%Y-%m-%d')}",
+              "### Checks",
+              "\n".join(f"- {d}" for d in details),
+              "### Action Required" if has_issues else "### Status: All Clear",
+              ("\n".join(f"- {i}" for i in issues)) if has_issues else "No action needed this week.",
+              "---",
+              "_Opened automatically by the Weekly Model Health Monitor workflow._"
+          ])
+
+          with open("/tmp/issue_body.txt", "w") as f:
+              f.write(issue_body)
+
+          print("=== Health Check Results ===")
+          for d in details:
+              print(f"  {d}")
+          if has_issues:
+              print(f"\n⚠️  {len(issues)} issue(s) found — will open GitHub Issue")
+          else:
+              print("\n✅ All checks passed")
+          EOF
+
+      - name: Open GitHub Issue if action needed
+        if: steps.checks.outputs.has_issues == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="[Model Monitor] Action required — $(date -u +%Y-%m-%d)"
+          BODY=$(cat /tmp/issue_body.txt)
+
+          # Check if an open monitor issue already exists this week to avoid duplicates
+          EXISTING=$(gh issue list --label "model-monitor" --state open --json number --jq length)
+          if [ "$EXISTING" -eq "0" ]; then
+            gh issue create \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --label "model-monitor" || \
+            gh issue create \
+              --title "$TITLE" \
+              --body "$BODY"
+            echo "Issue created."
+          else
+            echo "Open monitor issue already exists — skipping duplicate."
+          fi
+
+      - name: Print all-clear if no issues
+        if: steps.checks.outputs.has_issues == 'false'
+        run: echo "✅ All health checks passed. No GitHub Issue needed."

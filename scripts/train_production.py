@@ -25,7 +25,7 @@ from utils import load_featured_data
 
 MODEL_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
 MODEL_PATH = os.path.join(MODEL_DIR, 'xgboost_production.joblib')
-PARAMS_PATH = os.path.join(RESULTS_DIR, 'tuning', 'xgboost_best_params.json')
+PARAMS_PATH = os.path.join(RESULTS_DIR, 'tuning', 'xgboost_best_params_v2.json')
 
 BASELINE_PARAMS = {
     'n_estimators': 200,
