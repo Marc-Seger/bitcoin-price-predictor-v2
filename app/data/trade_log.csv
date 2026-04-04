@@ -1,1 +1,2 @@
 prediction_date,target_date,predicted_return,direction,confidence,btc_price_at_prediction,predicted_price,actual_return,actual_price,correct,logged_at
+2026-03-28,2026-04-04,-0.0061325263231992,DOWN,LOW,66319.6953125,65912.98692347901,,,1.0,2026-04-04 07:46
