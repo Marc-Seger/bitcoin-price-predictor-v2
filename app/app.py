@@ -10,27 +10,29 @@ import streamlit as st
 # Make app/views/ importable so views can do `from components import ...`
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'views'))
 
-# ─── Ensure master_df.csv exists (download from GitHub Release if running on Streamlit Cloud) ───
-_DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'full_data', 'master_df.csv')
-_RELEASE_URL = 'https://github.com/Marc-Seger/bitcoin-price-predictor-v2/releases/download/latest/master_df.csv'
-
-# Always download fresh data (Streamlit Cloud filesystem is ephemeral)
-os.makedirs(os.path.dirname(_DATA_PATH), exist_ok=True)
-try:
-    with st.spinner('Downloading latest data (~30s)...'):
-        r = requests.get(_RELEASE_URL, timeout=120)
-        r.raise_for_status()
-        with open(_DATA_PATH, 'wb') as f:
-            f.write(r.content)
-except Exception as e:
-    st.error(f'Failed to download data: {e}')
-
+# ─── set_page_config MUST be first Streamlit call ───
 st.set_page_config(
     page_title="BTC Price Predictor",
     page_icon="₿",
     layout="wide",
     initial_sidebar_state="expanded",
 )
+
+# ─── Download master_df from GitHub Release (Streamlit Cloud has no local data) ───
+_DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'full_data', 'master_df.csv')
+_RELEASE_URL = 'https://github.com/Marc-Seger/bitcoin-price-predictor-v2/releases/download/latest/master_df.csv'
+
+if not os.path.exists(_DATA_PATH):
+    os.makedirs(os.path.dirname(_DATA_PATH), exist_ok=True)
+    with st.spinner('Downloading latest data (~30s)...'):
+        try:
+            r = requests.get(_RELEASE_URL, timeout=120)
+            r.raise_for_status()
+            with open(_DATA_PATH, 'wb') as f:
+                f.write(r.content)
+        except Exception as e:
+            st.error(f'Failed to download data: {e}')
+            st.stop()
 
 # ─── Custom dark theme CSS (inspired by shortfall analyzer) ───
 st.markdown("""
@@ -150,13 +152,10 @@ p, li, span { font-family: 'DM Sans', sans-serif !important; }
 /* Selectbox / multiselect */
 div[data-baseweb="select"] { font-family: 'JetBrains Mono', monospace !important; font-size: 12px !important; }
 
-/* Hide Streamlit branding and sidebar toggle — sidebar always visible */
+/* Hide Streamlit branding only — keep header and sidebar controls intact */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-header { visibility: hidden; }
-button[data-testid="stSidebarCollapsedControl"],
-button[data-testid="stSidebarNavCollapseIcon"],
-[data-testid="collapsedControl"] { display: none !important; }
+.stDeployButton { display: none !important; }
 
 /* Reduce top padding */
 .block-container { padding-top: 1rem !important; }
