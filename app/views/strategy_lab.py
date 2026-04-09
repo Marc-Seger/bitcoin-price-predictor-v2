@@ -42,7 +42,7 @@ def load_rsi_sma():
 def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
                       strategy: str, leverage: float,
                       stop_loss_pct: float, take_profit_pct: float,
-                      confidence_filter: str) -> pd.DataFrame:
+                      confidence_filter: str, fees_pct: float = 0.002) -> pd.DataFrame:
     """
     Simulate a trading strategy on historical predictions.
 
@@ -156,6 +156,8 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
             exit_price = day_close
 
         raw_return = (exit_price / entry_price) - 1
+        # Deduct round-trip fees (entry + exit) from the raw return
+        raw_return -= fees_pct
         leveraged_return = raw_return * leverage
 
         if liquidated:
@@ -214,13 +216,16 @@ def render():
     take_profit_pct = st.sidebar.slider("Take Profit (%)", 0.0, 50.0, 0.0, 1.0,
                                          help="0 = disabled. Closes position if price rises by this %.")
 
+    fees_pct = st.sidebar.slider("Trading Fees (%)", 0.0, 1.0, 0.2, 0.05,
+                                  help="Round-trip cost per trade (entry + exit). 0.2% is typical for spot crypto exchanges. Set to 0 to see theoretical maximum.") / 100
+
     if leverage > 10:
         st.sidebar.warning(f"At {leverage}x leverage, a {100/leverage:.1f}% drop = liquidation.")
 
     # ─── Run simulation ───
     trades = simulate_strategy(preds, prices, strategy, leverage,
                                 stop_loss_pct, take_profit_pct,
-                                confidence_filter)
+                                confidence_filter, fees_pct)
 
     if trades.empty:
         st.warning("No trades to display.")
@@ -391,5 +396,7 @@ def render():
     st.info(
         f"Backtest period: **{date_from} → {date_to}** — based on walk-forward predictions "
         f"(model trained only on past data at each point, no future data used). "
-        f"Results reflect actual market conditions over this period."
+        f"Trading fees of **{fees_pct*100:.2f}% per trade** are applied. "
+        f"Results are still optimistic: the 52 model features were selected using the full dataset, "
+        f"which inflates historical accuracy vs. true out-of-sample performance."
     )
