@@ -33,10 +33,15 @@ def load_model():
 
 
 def get_latest_features() -> pd.DataFrame:
-    """Load the most recent row of features from master_df."""
+    """Load the most recent row of features from master_df.
+
+    On-chain data (CoinMetrics) typically lags 1-2 days.
+    Forward-fill those columns so the prediction always uses the most recent date.
+    """
     df = pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
                      usecols=['date'] + SELECTED_FEATURES)
-    # Use the last row that has all features available
+    # Forward-fill sparse/lagged columns (on-chain data, etc.) then take last row
+    df = df.ffill()
     latest = df.dropna().iloc[-1:]
     return latest
 
