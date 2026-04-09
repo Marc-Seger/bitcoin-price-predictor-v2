@@ -152,10 +152,12 @@ p, li, span { font-family: 'DM Sans', sans-serif !important; }
 /* Selectbox / multiselect */
 div[data-baseweb="select"] { font-family: 'JetBrains Mono', monospace !important; font-size: 12px !important; }
 
-/* Hide Streamlit branding — collapse header to zero height so no space is wasted */
+/* Hide Streamlit top bar — collapse to zero height so no space is wasted */
 #MainMenu { visibility: hidden; }
-footer { visibility: hidden; }
 header { visibility: hidden; height: 0 !important; min-height: 0 !important; }
+/* Keep footer visible (contains Manage App button) — hide only the "Made with Streamlit" text */
+footer { visibility: visible; }
+footer a[href*="streamlit.io"] { display: none !important; }
 
 /* Hide sidebar collapse/expand arrows — sidebar stays open permanently */
 [data-testid="collapsedControl"],
