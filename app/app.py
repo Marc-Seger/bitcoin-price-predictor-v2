@@ -152,16 +152,18 @@ p, li, span { font-family: 'DM Sans', sans-serif !important; }
 /* Selectbox / multiselect */
 div[data-baseweb="select"] { font-family: 'JetBrains Mono', monospace !important; font-size: 12px !important; }
 
-/* Hide Streamlit branding */
+/* Hide Streamlit branding — collapse header to zero height so no space is wasted */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
-.stDeployButton { display: none !important; }
-/* Hide the sidebar collapse arrow so it can never be accidentally closed */
-[data-testid="collapsedControl"] { display: none !important; }
-section[data-testid="stSidebar"] button[kind="header"] { display: none !important; }
+header { visibility: hidden; height: 0 !important; min-height: 0 !important; }
 
-/* Reduce top padding */
-.block-container { padding-top: 1rem !important; }
+/* Hide sidebar collapse/expand arrows — sidebar stays open permanently */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapseButton"],
+section[data-testid="stSidebar"] > div > div > button { display: none !important; }
+
+/* Top padding for content — no header space needed since height is 0 */
+.block-container { padding-top: 1.5rem !important; }
 </style>
 """, unsafe_allow_html=True)
 
