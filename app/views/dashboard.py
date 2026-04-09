@@ -19,8 +19,9 @@ from config import MASTER_DF_PATH, ASSETS, COL_FEAR_GREED, COL_GOOGLE_TRENDS, CO
 from components import CARD_COLORS, ASSET_COLORS, DARK_LAYOUT, CHART_BG, TEXT_COLOR, styled_metric
 
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def load_data():
+    """Load master_df. Cache invalidates if file is modified."""
     return pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True, low_memory=False)
 
 
