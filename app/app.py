@@ -195,14 +195,14 @@ st.sidebar.caption(
 
 # ─── Page routing ───
 if page == "Dashboard":
-    from views.dashboard import render
+    from dashboard import render
 elif page == "Forecast":
-    from views.forecast import render
+    from forecast import render
 elif page == "Strategy Lab":
-    from views.strategy_lab import render
+    from strategy_lab import render
 elif page == "Model Performance":
-    from views.performance import render
+    from performance import render
 elif page == "Documentation":
-    from views.documentation import render
+    from documentation import render
 
 render()
