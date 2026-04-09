@@ -22,11 +22,6 @@ try:
         r.raise_for_status()
         with open(_DATA_PATH, 'wb') as f:
             f.write(r.content)
-        # Check what we got
-        import pandas as pd
-        test_df = pd.read_csv(_DATA_PATH, index_col=0, nrows=1)
-        latest_date = test_df.index[-1]
-        st.toast(f'✓ Data loaded: {latest_date.strftime("%Y-%m-%d")}')
 except Exception as e:
     st.error(f'Failed to download data: {e}')
 
