@@ -76,8 +76,8 @@ def render():
             styled_metric("RSI (14)", "—", color='violet')
 
     # ─── Tabs ───
-    tab_price, tab_sentiment, tab_onchain, tab_cross = st.tabs([
-        "Price & Indicators", "Sentiment", "On-Chain", "Cross-Asset"
+    tab_price, tab_sentiment, tab_onchain, tab_cross, tab_ta = st.tabs([
+        "Price & Indicators", "Sentiment", "On-Chain", "Cross-Asset", "Technical Analysis"
     ])
 
     # ══════════════════════════════════════════
@@ -501,3 +501,299 @@ def render():
             ))
             fig_corr.update_layout(height=350, **DARK_LAYOUT)
             st.plotly_chart(fig_corr, use_container_width=True)
+
+    # ══════════════════════════════════════════
+    # TAB 5: Technical Analysis
+    # ══════════════════════════════════════════
+    with tab_ta:
+        col_a, col_b = st.columns([1, 1])
+        with col_a:
+            ta_asset = st.selectbox(
+                "Asset", list(ASSET_LABELS.keys()),
+                format_func=lambda a: ASSET_LABELS[a],
+                key='ta_asset',
+            )
+        with col_b:
+            ta_tf = st.selectbox(
+                "Timeframe", ["3M", "6M", "1Y", "2Y", "All"], index=3, key="ta_tf"
+            )
+
+        drawings = st.multiselect(
+            "Chart Drawings",
+            ["Support & Resistance", "Fibonacci Retracement", "Weekly Pivots", "ATH & Cycle Levels"],
+            default=[],
+            help="Select one or more drawings to overlay on the chart.",
+        )
+
+        # Prepare columns and slice data
+        ta_close = f'Close_{ta_asset}'
+        ta_high  = f'High_{ta_asset}'
+        ta_low   = f'Low_{ta_asset}'
+        ta_open  = f'Open_{ta_asset}'
+
+        ta_days = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730, 'All': len(df)}
+        ta_n    = ta_days[ta_tf]
+        ta_df   = df.dropna(subset=[ta_close]).tail(ta_n)
+
+        if ta_df.empty:
+            st.warning(f"No data available for {ASSET_LABELS.get(ta_asset, ta_asset)}.")
+        else:
+            current_price = ta_df[ta_close].iloc[-1]
+            hi_col = ta_high if ta_high in ta_df.columns else ta_close
+            lo_col = ta_low  if ta_low  in ta_df.columns else ta_close
+
+            # ── Base candlestick chart ──────────────────────────────────────
+            fig_ta = go.Figure()
+
+            if all(c in ta_df.columns for c in [ta_open, ta_high, ta_low, ta_close]):
+                fig_ta.add_trace(go.Candlestick(
+                    x=ta_df.index,
+                    open=ta_df[ta_open], high=ta_df[ta_high],
+                    low=ta_df[ta_low],  close=ta_df[ta_close],
+                    name=ta_asset,
+                    increasing_line_color='#10b981', decreasing_line_color='#f43f5e',
+                ))
+            else:
+                fig_ta.add_trace(go.Scatter(
+                    x=ta_df.index, y=ta_df[ta_close],
+                    name=ta_asset,
+                    line=dict(color=ASSET_COLORS.get(ta_asset, '#3b82f6'), width=2),
+                ))
+
+            # ── Drawing 1: Support & Resistance zones ──────────────────────
+            # Algorithm:
+            #   1. Scan each bar — it's a pivot high/low if it's the extreme
+            #      value within a window of n_pivot bars on each side.
+            #   2. Collect all pivot prices and cluster nearby values
+            #      (within 1.5% of each other) into single zones.
+            #   3. Score each zone by touch count; draw top 10.
+            #   4. Zones below current price = support (green),
+            #      zones above = resistance (red).
+            if "Support & Resistance" in drawings:
+                high_s = ta_df[hi_col]
+                low_s  = ta_df[lo_col]
+
+                # Adaptive window: roughly 2% of visible bars, min 5
+                n_pivot = max(5, len(ta_df) // 50)
+
+                pivot_prices = []
+                for i in range(n_pivot, len(ta_df) - n_pivot):
+                    if high_s.iloc[i] == high_s.iloc[i - n_pivot: i + n_pivot + 1].max():
+                        pivot_prices.append(float(high_s.iloc[i]))
+                    if low_s.iloc[i] == low_s.iloc[i - n_pivot: i + n_pivot + 1].min():
+                        pivot_prices.append(float(low_s.iloc[i]))
+
+                def _cluster(prices, threshold=0.015):
+                    if not prices:
+                        return []
+                    sorted_p = sorted(prices)
+                    clusters = [[sorted_p[0]]]
+                    for p in sorted_p[1:]:
+                        if (p - clusters[-1][0]) / clusters[-1][0] < threshold:
+                            clusters[-1].append(p)
+                        else:
+                            clusters.append([p])
+                    return [(float(np.mean(c)), len(c)) for c in clusters]
+
+                levels = sorted(_cluster(pivot_prices), key=lambda x: x[1], reverse=True)[:10]
+
+                for level_price, touch_count in levels:
+                    zone_half = level_price * 0.008  # zone = ±0.8% of level price
+                    is_support = level_price < current_price
+                    fill  = 'rgba(16,185,129,0.12)' if is_support else 'rgba(244,63,94,0.12)'
+                    border = '#10b981' if is_support else '#f43f5e'
+                    label = f"{'S' if is_support else 'R'}  {level_price:,.0f}  ({touch_count}✕)"
+
+                    fig_ta.add_hrect(
+                        y0=level_price - zone_half, y1=level_price + zone_half,
+                        fillcolor=fill, line=dict(color=border, width=0.8),
+                        opacity=1.0, layer='below',
+                    )
+                    fig_ta.add_annotation(
+                        x=ta_df.index[-1], y=level_price,
+                        text=label, xanchor='right', yanchor='middle',
+                        font=dict(size=10, color=border),
+                        showarrow=False, xref='x', yref='y',
+                        bgcolor='rgba(15,21,32,0.6)',
+                    )
+
+            # ── Drawing 2: Fibonacci Retracement ──────────────────────────
+            # Algorithm:
+            #   Find the period's overall swing high and swing low.
+            #   If the high came AFTER the low → uptrend: 0% = swing low,
+            #   100% = swing high, retracement levels go downward.
+            #   If the high came BEFORE the low → downtrend: 0% = swing high,
+            #   100% = swing low, retracement levels go upward.
+            #   Key levels: 23.6%, 38.2%, 50%, 61.8%, 78.6%.
+            if "Fibonacci Retracement" in drawings:
+                swing_high = float(ta_df[hi_col].max())
+                swing_low  = float(ta_df[lo_col].min())
+                swing_range = swing_high - swing_low
+
+                high_idx = ta_df[hi_col].idxmax()
+                low_idx  = ta_df[lo_col].idxmin()
+                uptrend  = high_idx > low_idx  # high came after low
+
+                fib_levels = [
+                    (0.000, '0.0%',   '#94a3b8'),
+                    (0.236, '23.6%',  '#fbbf24'),
+                    (0.382, '38.2%',  '#10b981'),
+                    (0.500, '50.0%',  '#3b82f6'),
+                    (0.618, '61.8%',  '#f59e0b'),
+                    (0.786, '78.6%',  '#f43f5e'),
+                    (1.000, '100.0%', '#94a3b8'),
+                ]
+
+                for ratio, label, color in fib_levels:
+                    if uptrend:
+                        # Retracement from high downward
+                        level_price = swing_high - ratio * swing_range
+                    else:
+                        # Retracement from low upward
+                        level_price = swing_low + ratio * swing_range
+
+                    fig_ta.add_hline(
+                        y=level_price,
+                        line=dict(color=color, width=1, dash='dot'),
+                        annotation_text=f"Fib {label}  {level_price:,.0f}",
+                        annotation_position="top left",
+                        annotation_font=dict(size=10, color=color),
+                    )
+
+            # ── Drawing 3: Weekly Pivot Points ────────────────────────────
+            # Algorithm:
+            #   Resample data to weekly bars. Take the last COMPLETE week
+            #   (second-to-last row after resampling, since the last row is
+            #   the current in-progress week).
+            #   PP  = (High + Low + Close) / 3  — pivot point
+            #   R1  = 2×PP − Low               — first resistance
+            #   R2  = PP + (High − Low)         — second resistance
+            #   R3  = High + 2×(PP − Low)       — third resistance
+            #   S1  = 2×PP − High               — first support
+            #   S2  = PP − (High − Low)         — second support
+            #   S3  = Low − 2×(High − PP)       — third support
+            if "Weekly Pivots" in drawings:
+                weekly = df[[hi_col, lo_col, ta_close]].dropna().resample('W').agg({
+                    hi_col:   'max',
+                    lo_col:   'min',
+                    ta_close: 'last',
+                }).dropna()
+
+                if len(weekly) >= 2:
+                    pw = weekly.iloc[-2]  # last complete week
+                    H, L, C = float(pw[hi_col]), float(pw[lo_col]), float(pw[ta_close])
+
+                    PP = (H + L + C) / 3
+                    R1 = 2 * PP - L
+                    R2 = PP + (H - L)
+                    R3 = H + 2 * (PP - L)
+                    S1 = 2 * PP - H
+                    S2 = PP - (H - L)
+                    S3 = L - 2 * (H - PP)
+
+                    pivot_lines = [
+                        (PP, 'PP',  '#e8edf5', 'solid',  1.5),
+                        (R1, 'R1',  '#fca5a5', 'dash',   1.0),
+                        (R2, 'R2',  '#f43f5e', 'dash',   1.0),
+                        (R3, 'R3',  '#dc2626', 'dash',   1.0),
+                        (S1, 'S1',  '#6ee7b7', 'dash',   1.0),
+                        (S2, 'S2',  '#10b981', 'dash',   1.0),
+                        (S3, 'S3',  '#059669', 'dash',   1.0),
+                    ]
+                    for level_price, label, color, dash, width in pivot_lines:
+                        fig_ta.add_hline(
+                            y=level_price,
+                            line=dict(color=color, width=width, dash=dash),
+                            annotation_text=f"{label}  {level_price:,.0f}",
+                            annotation_position="bottom right",
+                            annotation_font=dict(size=10, color=color),
+                        )
+
+            # ── Drawing 4: ATH & BTC Cycle Levels ─────────────────────────
+            # All-time high from the full dataset (not just visible window).
+            # BTC cycle peaks are hardcoded historical reference levels:
+            #   ~$20k Dec 2017, ~$69k Nov 2021.
+            # Non-visible levels are silently skipped to avoid cluttering
+            # the chart when zoomed into a range where they don't appear.
+            if "ATH & Cycle Levels" in drawings:
+                full_hi = df[hi_col] if hi_col in df.columns else df[ta_close]
+                ath = float(full_hi.max())
+
+                fig_ta.add_hline(
+                    y=ath,
+                    line=dict(color='#fbbf24', width=1.5, dash='dashdot'),
+                    annotation_text=f"ATH  {ath:,.0f}",
+                    annotation_position="top right",
+                    annotation_font=dict(size=10, color='#fbbf24'),
+                )
+
+                if ta_asset == 'BTC':
+                    vis_min = float(ta_df[lo_col].min()) * 0.9
+                    vis_max = float(ta_df[hi_col].max()) * 1.1
+                    cycle_peaks = [
+                        (20000, '2017 Cycle Peak', '#f59e0b'),
+                        (69000, '2021 Cycle Peak', '#f59e0b'),
+                    ]
+                    for level_price, label, color in cycle_peaks:
+                        if vis_min <= level_price <= vis_max:
+                            fig_ta.add_hline(
+                                y=level_price,
+                                line=dict(color=color, width=1, dash='dot'),
+                                annotation_text=f"{label}  {level_price:,.0f}",
+                                annotation_position="top right",
+                                annotation_font=dict(size=10, color=color),
+                            )
+
+            # ── Layout ─────────────────────────────────────────────────────
+            if ta_asset != 'BTC':
+                fig_ta.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
+
+            fig_ta.update_layout(
+                height=620,
+                xaxis_rangeslider_visible=False,
+                title=dict(
+                    text=f"{ASSET_LABELS.get(ta_asset, ta_asset)} — Technical Analysis",
+                    font=dict(size=14, color=TEXT_COLOR), x=0,
+                ),
+                **DARK_LAYOUT,
+            )
+            st.plotly_chart(fig_ta, use_container_width=True, config={'displayModeBar': False})
+
+            # ── Legends / explanations ─────────────────────────────────────
+            if drawings:
+                st.markdown("---")
+                legend_map = {
+                    "Support & Resistance": (
+                        "**Support & Resistance zones**",
+                        "Green = support (price is above), Red = resistance (price is below). "
+                        "Each zone is formed by clustering pivot highs/lows within 1.5% of each other. "
+                        "The number in parentheses is the touch count — more touches = stronger level.",
+                    ),
+                    "Fibonacci Retracement": (
+                        "**Fibonacci Retracement**",
+                        "Drawn between the period's major swing high and low. "
+                        "Key levels: 23.6%, 38.2%, 50%, 61.8%, 78.6%. "
+                        "Price tends to find support or resistance at these ratios during a pullback. "
+                        "Direction (up/down) is inferred from which extreme came last.",
+                    ),
+                    "Weekly Pivots": (
+                        "**Weekly Pivot Points**",
+                        "Calculated from last week's High, Low, Close: PP = (H+L+C)÷3. "
+                        "R1/R2/R3 are resistance levels above PP; S1/S2/S3 are support levels below. "
+                        "Floor traders have used these as intraday reference levels for decades.",
+                    ),
+                    "ATH & Cycle Levels": (
+                        "**ATH & Cycle Levels**",
+                        "Gold line = all-time high from the full dataset. "
+                        "For BTC: previous cycle peaks ($20k Dec 2017, $69k Nov 2021) are shown "
+                        "when visible in the selected timeframe. These historical levels often act as "
+                        "major support after being broken.",
+                    ),
+                }
+                cols_leg = st.columns(len(drawings))
+                for i, drawing in enumerate(drawings):
+                    if drawing in legend_map:
+                        title, body = legend_map[drawing]
+                        with cols_leg[i]:
+                            st.markdown(title)
+                            st.caption(body)
