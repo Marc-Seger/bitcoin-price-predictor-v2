@@ -230,11 +230,16 @@ def fetch_onchain(last_date: str) -> pd.DataFrame:
     Fetches on-chain metrics from CoinMetrics free community API.
     5 metrics available on free tier (down from 8 — 3 are paid).
     Dropped: SplyAct1yr, VtyDayRet30d, TxTfrValAdjUSD (paid tier only).
+
+    Looks back 7 days before last_date to backfill any NaN rows caused by
+    CoinMetrics' 1-2 day publication lag.
     """
-    start, end = _date_range(last_date)
-    if not start:
-        print('CoinMetrics: already up to date.')
-        return pd.DataFrame()
+    _, end = _date_range(last_date)
+    # Look back 7 days so any lagged rows get filled on subsequent runs
+    start = (pd.to_datetime(last_date) - timedelta(days=6)).date()
+    if not end:
+        end = date.today()
+    print(f'CoinMetrics: fetching {start} → {end} (includes 7-day lookback for lag)')
 
     url = 'https://community-api.coinmetrics.io/v4/timeseries/asset-metrics'
     params = {

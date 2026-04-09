@@ -70,7 +70,7 @@ def combine_new_data(fetched: dict) -> pd.DataFrame:
 def append_new_rows(master: pd.DataFrame, new_data: pd.DataFrame) -> pd.DataFrame:
     """
     Appends rows from new_data that are not already in master.
-    Only dates strictly after the last date in master are added.
+    Also backfills NaN values in existing rows (handles data-source publication lags).
     """
     if new_data.empty:
         print('merge: no new rows to append.')
@@ -79,8 +79,17 @@ def append_new_rows(master: pd.DataFrame, new_data: pd.DataFrame) -> pd.DataFram
     last_date = master.index.max()
     new_rows = new_data[new_data.index > last_date]
 
+    # Backfill NaN in existing rows from overlapping fetched data
+    # (e.g. CoinMetrics publishes Apr 8 data on Apr 10 — fill it in)
+    overlap = new_data[new_data.index <= last_date]
+    if not overlap.empty:
+        # update() with overwrite=False only fills NaN cells, never overwrites real values
+        master.update(overlap, overwrite=False)
+        filled = overlap.shape[0]
+        print(f'merge: backfilled up to {filled} rows with previously-NaN data.')
+
     if new_rows.empty:
-        print('merge: data is already up to date.')
+        print('merge: no new rows to append (but may have backfilled NaN above).')
         return master
 
     # Align columns — new_rows may have columns master doesn't (or vice versa)
