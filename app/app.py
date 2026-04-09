@@ -13,45 +13,18 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'views'))
 # ─── Ensure master_df.csv exists (download from GitHub Release if running on Streamlit Cloud) ───
 _DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'full_data', 'master_df.csv')
 _RELEASE_URL = 'https://github.com/Marc-Seger/bitcoin-price-predictor-v2/releases/download/latest/master_df.csv'
-_METADATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'full_data', '.master_df_meta')
 
-def _should_redownload():
-    """Check if release has newer data than local file."""
-    if not os.path.exists(_DATA_PATH):
-        return True
-    try:
-        import json
-        from datetime import datetime, timezone
-        # Get release info
-        r = requests.head(_RELEASE_URL, timeout=10, allow_redirects=True)
-        remote_mtime = r.headers.get('last-modified')
-        if not remote_mtime:
-            return False
-        # Parse HTTP date format
-        remote_dt = datetime.strptime(remote_mtime, '%a, %d %b %Y %H:%M:%S %Z').replace(tzinfo=timezone.utc)
-        # Check local metadata
-        if os.path.exists(_METADATA_PATH):
-            with open(_METADATA_PATH) as f:
-                local_meta = json.load(f)
-                local_dt = datetime.fromisoformat(local_meta.get('last_updated', ''))
-                return remote_dt > local_dt
-        return True
-    except Exception:
-        return False
-
-if not os.path.exists(_DATA_PATH) or _should_redownload():
+if not os.path.exists(_DATA_PATH):
     os.makedirs(os.path.dirname(_DATA_PATH), exist_ok=True)
-    spinner_msg = 'Downloading data...' if os.path.exists(_DATA_PATH) else 'Downloading data (first run, ~30s)...'
-    with st.spinner(spinner_msg):
-        r = requests.get(_RELEASE_URL, timeout=120)
-        r.raise_for_status()
-        with open(_DATA_PATH, 'wb') as f:
-            f.write(r.content)
-        # Save metadata
-        import json
-        from datetime import datetime, timezone
-        with open(_METADATA_PATH, 'w') as f:
-            json.dump({'last_updated': datetime.now(timezone.utc).isoformat()}, f)
+    with st.spinner('Downloading latest data (first run only, ~30s)...'):
+        try:
+            r = requests.get(_RELEASE_URL, timeout=120)
+            r.raise_for_status()
+            with open(_DATA_PATH, 'wb') as f:
+                f.write(r.content)
+            st.success('Data downloaded successfully!')
+        except Exception as e:
+            st.error(f'Failed to download data: {e}')
 
 st.set_page_config(
     page_title="BTC Price Predictor",
