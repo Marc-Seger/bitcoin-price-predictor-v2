@@ -150,10 +150,13 @@ p, li, span { font-family: 'DM Sans', sans-serif !important; }
 /* Selectbox / multiselect */
 div[data-baseweb="select"] { font-family: 'JetBrains Mono', monospace !important; font-size: 12px !important; }
 
-/* Hide Streamlit branding */
+/* Hide Streamlit branding and sidebar toggle — sidebar always visible */
 #MainMenu { visibility: hidden; }
 footer { visibility: hidden; }
 header { visibility: hidden; }
+button[data-testid="stSidebarCollapsedControl"],
+button[data-testid="stSidebarNavCollapseIcon"],
+[data-testid="collapsedControl"] { display: none !important; }
 
 /* Reduce top padding */
 .block-container { padding-top: 1rem !important; }
