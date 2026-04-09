@@ -14,17 +14,21 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'views'))
 _DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'full_data', 'master_df.csv')
 _RELEASE_URL = 'https://github.com/Marc-Seger/bitcoin-price-predictor-v2/releases/download/latest/master_df.csv'
 
-if not os.path.exists(_DATA_PATH):
-    os.makedirs(os.path.dirname(_DATA_PATH), exist_ok=True)
-    with st.spinner('Downloading latest data (first run only, ~30s)...'):
-        try:
-            r = requests.get(_RELEASE_URL, timeout=120)
-            r.raise_for_status()
-            with open(_DATA_PATH, 'wb') as f:
-                f.write(r.content)
-            st.success('Data downloaded successfully!')
-        except Exception as e:
-            st.error(f'Failed to download data: {e}')
+# Always download fresh data (Streamlit Cloud filesystem is ephemeral)
+os.makedirs(os.path.dirname(_DATA_PATH), exist_ok=True)
+try:
+    with st.spinner('Downloading latest data (~30s)...'):
+        r = requests.get(_RELEASE_URL, timeout=120)
+        r.raise_for_status()
+        with open(_DATA_PATH, 'wb') as f:
+            f.write(r.content)
+        # Check what we got
+        import pandas as pd
+        test_df = pd.read_csv(_DATA_PATH, index_col=0, nrows=1)
+        latest_date = test_df.index[-1]
+        st.toast(f'✓ Data loaded: {latest_date.strftime("%Y-%m-%d")}')
+except Exception as e:
+    st.error(f'Failed to download data: {e}')
 
 st.set_page_config(
     page_title="BTC Price Predictor",
