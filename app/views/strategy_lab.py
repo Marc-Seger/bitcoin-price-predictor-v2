@@ -17,7 +17,7 @@ from config import RESULTS_DIR, MASTER_DF_PATH
 from components import CARD_COLORS, DARK_LAYOUT, styled_metric
 
 
-@st.cache_data
+@st.cache_data(ttl=23 * 3600)
 def load_predictions():
     """Load XGBoost 7-day walk-forward predictions and BTC prices."""
     xgb_path = os.path.join(RESULTS_DIR, 'XGB_7d_walkforward_results.csv')
@@ -31,7 +31,7 @@ def load_predictions():
     return preds, prices
 
 
-@st.cache_data
+@st.cache_data(ttl=23 * 3600)
 def load_rsi_sma():
     """Load RSI and SMA data once for strategy filters."""
     return pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,

@@ -4,7 +4,6 @@ Bitcoin Price Predictor — Streamlit App
 
 import os
 import sys
-import time
 import requests
 import streamlit as st
 
@@ -23,26 +22,24 @@ st.set_page_config(
 _DATA_PATH = os.path.join(os.path.dirname(__file__), '..', 'data', 'full_data', 'master_df.csv')
 _RELEASE_URL = 'https://github.com/Marc-Seger/bitcoin-price-predictor-v2/releases/download/latest/master_df.csv'
 
-_DATA_MAX_AGE = 23 * 3600  # re-download if file is older than 23 hours
-
-def _data_is_stale():
-    if not os.path.exists(_DATA_PATH):
-        return True
-    return (time.time() - os.path.getmtime(_DATA_PATH)) > _DATA_MAX_AGE
-
-if _data_is_stale():
+@st.cache_data(ttl=23 * 3600, show_spinner=False)
+def _fetch_master_df():
+    """Download master_df from GitHub Release. Streamlit clears this cache on reboot,
+    and the TTL ensures it refreshes daily even if the server stays alive."""
     os.makedirs(os.path.dirname(_DATA_PATH), exist_ok=True)
-    with st.spinner('Downloading latest data...'):
-        try:
-            r = requests.get(_RELEASE_URL, timeout=120)
-            r.raise_for_status()
-            with open(_DATA_PATH, 'wb') as f:
-                f.write(r.content)
-        except Exception as e:
-            if not os.path.exists(_DATA_PATH):
-                st.error(f'Failed to download data: {e}')
-                st.stop()
-            # else: file exists but is stale — use it as fallback rather than crash
+    r = requests.get(_RELEASE_URL, timeout=120)
+    r.raise_for_status()
+    with open(_DATA_PATH, 'wb') as f:
+        f.write(r.content)
+
+try:
+    with st.spinner('Loading latest data...'):
+        _fetch_master_df()
+except Exception as e:
+    if not os.path.exists(_DATA_PATH):
+        st.error(f'Failed to download data: {e}')
+        st.stop()
+    # else: cached file exists on disk — use it as fallback
 
 # ─── Custom dark theme CSS (inspired by shortfall analyzer) ───
 st.markdown("""
