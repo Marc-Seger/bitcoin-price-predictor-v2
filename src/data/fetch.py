@@ -28,7 +28,7 @@ from dotenv import load_dotenv
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 from config import TICKERS, FRED_SERIES, COINMETRICS_METRICS, COL_GOOGLE_TRENDS, COL_ETF_FLOW
 
-load_dotenv(os.path.join(os.path.dirname(__file__), '../../..', '.env'))
+load_dotenv(os.path.join(os.path.dirname(__file__), '../..', '.env'))
 FRED_API_KEY = os.getenv('FRED_API_KEY')
 
 
@@ -53,14 +53,25 @@ def fetch_yfinance(last_date: str) -> pd.DataFrame:
     """
     Fetches OHLCV data for all assets from yfinance in a single batch call.
     Columns are renamed to match existing master_df convention: Open_BTC, Close_SP500, etc.
+
+    Two corrections vs the naive _date_range() approach:
+    1. Look back 2 days so yesterday's complete candle backfills any NaN rows
+       created when the candle was not yet available (mirrors CoinMetrics pattern).
+    2. yfinance end is exclusive — add 1 day so the fetch window is non-empty
+       even when start == date.today().
     """
-    start, end = _date_range(last_date)
-    if not start:
+    _, end = _date_range(last_date)
+    if not end:
         print('yfinance: already up to date.')
         return pd.DataFrame()
 
+    # 2-day lookback so yesterday's complete candle fills any prior NaN rows
+    start = (pd.to_datetime(last_date) - timedelta(days=2)).date()
+    # yfinance end is exclusive — add 1 day to include today's candle if available
+    fetch_end = end + timedelta(days=1)
+
     tickers_str = ' '.join(TICKERS.values())
-    raw = yf.download(tickers_str, start=str(start), end=str(end),
+    raw = yf.download(tickers_str, start=str(start), end=str(fetch_end),
                       progress=False, auto_adjust=True)
 
     if raw.empty:
@@ -83,7 +94,7 @@ def fetch_yfinance(last_date: str) -> pd.DataFrame:
 
     result = pd.concat(frames, axis=1)
     result.index.name = 'date'
-    print(f'yfinance: fetched {len(result)} new rows ({start} → {end}).')
+    print(f'yfinance: fetched {len(result)} rows ({start} → {fetch_end}, includes 2-day lookback).')
     return result
 
 
