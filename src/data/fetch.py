@@ -138,12 +138,17 @@ def fetch_fear_greed(last_date: str) -> pd.DataFrame:
     Fetches BTC Fear & Greed index from Alternative.me.
     Free, no API key required. Returns daily values.
     Capped at 365 days per request to stay within API limits.
+
+    Looks back 2 extra days so any row missing due to a prior API failure
+    gets backfilled on the next successful run.
     """
     start, end = _date_range(last_date)
     if not start:
         print('Fear & Greed: already up to date.')
         return pd.DataFrame()
 
+    # 2-day lookback to backfill any gap from a previous failed fetch
+    start = max((pd.to_datetime(last_date) - timedelta(days=2)).date(), date(2018, 2, 1))
     days_to_fetch = min((end - start).days + 1, 365)
     url = f'https://api.alternative.me/fng/?limit={days_to_fetch}&date_format=world'
 

@@ -57,6 +57,33 @@ def main():
     print(f'Last date: {final.index.max().date()}')
     print('=' * 50)
 
+    # ── NaN audit ──────────────────────────────
+    # Check raw source columns only (not computed indicators — those have
+    # expected NaN at the start of the series due to rolling window warmup).
+    RAW_COLS = [
+        'Close_BTC',
+        'Sentiment_BTC_index_value',
+        'Sentiment_GT_Bitcoin',
+        'OnChain_Active_Addresses', 'OnChain_Transaction_Count',
+        'OnChain_Hash_Rate', 'OnChain_MVRV_Ratio', 'OnChain_30d_ROI',
+        'Macro_CPI', 'Macro_Interest_Rate', 'Macro_M2_Money_Supply',
+        'ETF_Flow_Total',
+    ]
+    tail = final.tail(7)
+    problems = []
+    for col in RAW_COLS:
+        if col not in final.columns:
+            continue
+        n_nan = tail[col].isna().sum()
+        if n_nan > 0:
+            problems.append(f'  {col}: {n_nan}/7 NaN in last 7 rows')
+    if problems:
+        print('\n⚠ NaN audit — columns with recent gaps:')
+        for p in problems:
+            print(p)
+    else:
+        print('\n✓ NaN audit passed — no gaps in last 7 rows of raw source columns.')
+
 
 if __name__ == '__main__':
     main()
