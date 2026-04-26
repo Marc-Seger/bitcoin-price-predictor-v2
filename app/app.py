@@ -31,15 +31,37 @@ def _fetch_master_df():
     r.raise_for_status()
     with open(_DATA_PATH, 'wb') as f:
         f.write(r.content)
+    return True  # signals download ran (not a cache hit)
 
+_download_error = None
+_download_ran = False
 try:
     with st.spinner('Loading latest data...'):
-        _fetch_master_df()
+        _download_ran = _fetch_master_df()
 except Exception as e:
+    _download_error = str(e)
     if not os.path.exists(_DATA_PATH):
         st.error(f'Failed to download data: {e}')
         st.stop()
-    # else: cached file exists on disk — use it as fallback
+
+# ─── Diagnostic sidebar panel (remove once data freshness is confirmed) ───
+import pandas as _pd
+with st.sidebar:
+    with st.expander('🔍 Data diagnostics', expanded=False):
+        st.caption(f'File path: `{_DATA_PATH}`')
+        st.caption(f'File exists: `{os.path.exists(_DATA_PATH)}`')
+        if os.path.exists(_DATA_PATH):
+            import time as _time
+            mtime = os.path.getmtime(_DATA_PATH)
+            st.caption(f'File modified: `{_pd.Timestamp(mtime, unit="s")}`')
+            try:
+                _tail = _pd.read_csv(_DATA_PATH, index_col=0, usecols=[0], parse_dates=True)
+                st.caption(f'Last data date: `{_tail.index.max().date()}`')
+            except Exception as _e:
+                st.caption(f'Read error: `{_e}`')
+        st.caption(f'Download ran (not cached): `{_download_ran}`')
+        if _download_error:
+            st.error(f'Download error: {_download_error}')
 
 # ─── Custom dark theme CSS (inspired by shortfall analyzer) ───
 st.markdown("""
