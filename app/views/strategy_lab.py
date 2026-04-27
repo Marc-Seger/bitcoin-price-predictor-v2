@@ -166,6 +166,7 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
             continue
 
         exit_price = entry_price
+        exit_date = future_dates[-1]
         exit_reason = 'End of window'
         liquidated = False
         liquidation_price = entry_price * (1 - 1 / leverage) if leverage > 1 else 0
@@ -180,6 +181,7 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
 
             if leverage > 1 and day_low <= liquidation_price:
                 exit_price = liquidation_price
+                exit_date = day
                 exit_reason = f'LIQUIDATED at ${liquidation_price:,.0f}'
                 liquidated = True
                 break
@@ -188,6 +190,7 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
                 sl_price = entry_price * (1 - stop_loss_pct / 100)
                 if day_low <= sl_price:
                     exit_price = sl_price
+                    exit_date = day
                     exit_reason = f'Stop loss at ${sl_price:,.0f}'
                     break
 
@@ -195,10 +198,12 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
                 tp_price = entry_price * (1 + take_profit_pct / 100)
                 if day_high >= tp_price:
                     exit_price = tp_price
+                    exit_date = day
                     exit_reason = f'Take profit at ${tp_price:,.0f}'
                     break
 
             exit_price = day_close
+            exit_date = day
 
         raw_return = (exit_price / entry_price) - 1
         raw_return -= fees_pct
@@ -213,6 +218,7 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
 
         trades.append({
             'date': pred_date, 'action': 'LONG',
+            'exit_date': exit_date,
             'entry_price': entry_price, 'exit_price': exit_price,
             'return_pct': raw_return * 100, 'leveraged_return_pct': leveraged_return * 100,
             'pnl': pnl, 'capital_after': capital,
@@ -410,18 +416,31 @@ def render():
 
     with tab_trades:
         if len(active_trades) > 0:
-            display = active_trades[[
-                'date', 'confidence', 'entry_price', 'exit_price',
-                'return_pct', 'leveraged_return_pct', 'pnl', 'capital_after', 'exit_reason',
-            ]].copy()
-            display['entry_price']           = display['entry_price'].apply(lambda x: f"${x:,.0f}")
-            display['exit_price']            = display['exit_price'].apply(lambda x: f"${x:,.0f}")
-            display['return_pct']            = display['return_pct'].apply(lambda x: f"{x:+.2f}%")
-            display['leveraged_return_pct']  = display['leveraged_return_pct'].apply(lambda x: f"{x:+.2f}%")
-            display['pnl']                   = display['pnl'].apply(lambda x: f"${x:+,.0f}")
-            display['capital_after']         = display['capital_after'].apply(lambda x: f"${x:,.0f}")
-            display.columns = ['Date', 'Confidence', 'Entry', 'Exit', 'Return',
-                               'Leveraged Return', 'P&L', 'Capital', 'Exit Reason']
+            rows = []
+            for _, t in active_trades.iterrows():
+                rows.append({
+                    'Date':             t['date'].strftime('%Y-%m-%d'),
+                    'Action':           'OPEN',
+                    'Confidence':       t['confidence'],
+                    'Price':            f"${t['entry_price']:,.0f}",
+                    'Return':           '',
+                    'Leveraged Return': '',
+                    'P&L':              '',
+                    'Capital':          '',
+                    'Exit Reason':      '',
+                })
+                rows.append({
+                    'Date':             t['exit_date'].strftime('%Y-%m-%d'),
+                    'Action':           'CLOSE',
+                    'Confidence':       t['confidence'],
+                    'Price':            f"${t['exit_price']:,.0f}",
+                    'Return':           f"{t['return_pct']:+.2f}%",
+                    'Leveraged Return': f"{t['leveraged_return_pct']:+.2f}%",
+                    'P&L':              f"${t['pnl']:+,.0f}",
+                    'Capital':          f"${t['capital_after']:,.0f}",
+                    'Exit Reason':      t['exit_reason'],
+                })
+            display = pd.DataFrame(rows)
             st.dataframe(display.iloc[::-1], use_container_width=True, hide_index=True)
         else:
             st.info("No trades taken with current strategy settings.")
