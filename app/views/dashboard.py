@@ -428,7 +428,6 @@ def render():
             'OnChain_Active_Addresses': ('Active Addresses', 'Daily unique addresses — user activity proxy', 'emerald'),
             'OnChain_MVRV_Ratio': ('MVRV Ratio', '>3.5 = historically overbought, <1 = undervalued', 'amber'),
             'OnChain_Transaction_Count': ('Transactions', 'Daily on-chain transaction count', 'violet'),
-            'OnChain_30d_ROI': ('30-Day ROI', 'Rolling 30-day return on investment', 'rose'),
         }
 
         for col_name, (display_name, description, color) in onchain_metrics.items():
