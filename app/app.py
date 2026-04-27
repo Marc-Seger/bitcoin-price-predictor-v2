@@ -154,7 +154,7 @@ h2 { font-size: 16px !important; font-weight: 600 !important; }
 h3 { font-size: 14px !important; font-weight: 600 !important; }
 
 /* General text */
-p, li, span { font-family: 'DM Sans', sans-serif !important; }
+p, li { font-family: 'DM Sans', sans-serif !important; }
 
 /* Selectbox / multiselect */
 div[data-baseweb="select"] { font-family: 'JetBrains Mono', monospace !important; font-size: 12px !important; }
