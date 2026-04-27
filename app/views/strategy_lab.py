@@ -42,22 +42,35 @@ PRESETS = {
 
 PROFILE_DESCRIPTIONS = {
     'Conservative': (
-        "Uses the **All Signals** strategy: enters a long whenever the model predicts any positive "
-        "7-day return, at **1× leverage** (no liquidation risk). **Stop loss: 5%**, **take profit: 15%**. "
-        "If neither triggers, the trade closes automatically at day 7 regardless of P&L. "
-        "0.1% slippage applied on fills — no funding fees (spot position)."
+        'The **Conservative** profile uses the **"All Signals"** strategy: '
+        'enters a long whenever the model predicts any positive 7-day return.\n\n'
+        '- **Leverage:** 1× (no liquidation risk)\n'
+        '- **Take profit:** 15%\n'
+        '- **Stop loss:** 5%\n'
+        '- **Slippage:** 0.1% applied on fills\n'
+        '- **Funding fees:** N/A (spot position)\n\n'
+        'If TP/SL isn\'t triggered, the trade closes automatically at day 7 regardless of P&L.'
     ),
     'Moderate': (
-        "Uses the **Large Move Signals** strategy: only enters when the model predicts a return above 5%, "
-        "filtered to HIGH confidence signals, at **2× leverage**. **Stop loss: 8%**, **take profit: 20%**. "
-        "If neither triggers, the trade closes at day 7. "
-        "Includes 0.1% slippage and **0.03%/day funding fees** on the leveraged position."
+        'The **Moderate** profile uses the **"Large Move Signals"** strategy: '
+        'only enters when the model predicts a return above 5%, filtered to HIGH confidence signals.\n\n'
+        '- **Leverage:** 2×\n'
+        '- **Take profit:** 20%\n'
+        '- **Stop loss:** 8%\n'
+        '- **Slippage:** 0.1% applied on fills\n'
+        '- **Funding fees:** 0.03%/day on the leveraged position\n\n'
+        'If TP/SL isn\'t triggered, the trade closes automatically at day 7 regardless of P&L.'
     ),
     'Aggressive': (
-        "Uses the **All Signals** strategy filtered to HIGH confidence signals, at **5× leverage**. "
-        "**Stop loss: 10%**, **take profit: 30%**. At 5×, a 20% adverse move triggers full liquidation. "
-        "Includes 0.1% slippage and **0.03%/day funding fees**. "
-        "Full-history results are dominated by the 2019–2024 bull run — use a recent start date for a realistic picture."
+        'The **Aggressive** profile uses the **"All Signals"** strategy '
+        'filtered to HIGH confidence signals.\n\n'
+        '- **Leverage:** 5× (a 20% adverse move triggers full liquidation)\n'
+        '- **Take profit:** 30%\n'
+        '- **Stop loss:** 10%\n'
+        '- **Slippage:** 0.1% applied on fills\n'
+        '- **Funding fees:** 0.03%/day on the leveraged position\n\n'
+        'If TP/SL isn\'t triggered, the trade closes automatically at day 7. '
+        'Full-history results are dominated by the 2019–2024 bull run — use a recent start date for a realistic picture.'
     ),
 }
 
