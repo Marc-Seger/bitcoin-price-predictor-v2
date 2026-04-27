@@ -40,24 +40,48 @@ PRESETS = {
     },
 }
 
+PROFILE_DESCRIPTIONS = {
+    'Conservative': (
+        "Uses the **All Signals** strategy: enters a long whenever the model predicts any positive "
+        "7-day return, at **1× leverage** (no liquidation risk). **Stop loss: 5%**, **take profit: 15%**. "
+        "If neither triggers, the trade closes automatically at day 7 regardless of P&L. "
+        "0.1% slippage applied on fills — no funding fees (spot position)."
+    ),
+    'Moderate': (
+        "Uses the **Large Move Signals** strategy: only enters when the model predicts a return above 5%, "
+        "filtered to HIGH confidence signals, at **2× leverage**. **Stop loss: 8%**, **take profit: 20%**. "
+        "If neither triggers, the trade closes at day 7. "
+        "Includes 0.1% slippage and **0.03%/day funding fees** on the leveraged position."
+    ),
+    'Aggressive': (
+        "Uses the **All Signals** strategy filtered to HIGH confidence signals, at **5× leverage**. "
+        "**Stop loss: 10%**, **take profit: 30%**. At 5×, a 20% adverse move triggers full liquidation. "
+        "Includes 0.1% slippage and **0.03%/day funding fees**. "
+        "Full-history results are dominated by the 2019–2024 bull run — use a recent start date for a realistic picture."
+    ),
+}
+
 STRATEGY_DESCRIPTIONS = {
     'All Signals': (
-        "Goes long whenever the model predicts any positive 7-day return, regardless of size. "
-        "Trades roughly once a week. Best for testing the model's raw directional edge."
+        "The purest test of the model's directional edge. Goes long whenever the model predicts any "
+        "positive 7-day return, with no magnitude filter. Trades roughly once a week. "
+        "Best used at 1× to isolate whether the model's direction calls add value over buy & hold."
     ),
     'Large Move Signals': (
-        "Only enters when the model predicts a return above 5% — skipping smaller signals. "
-        "Fewer trades, but targets the model's most decisive calls. "
-        "Note: the 5% threshold reflects the predicted size of the move, not the model's certainty."
+        "Only enters when the predicted 7-day return exceeds 5%, targeting the model's most decisive calls. "
+        "Trades less frequently than All Signals. "
+        "Note: the 5% threshold reflects the predicted size of the move, not how statistically confident "
+        "the model is — a 6% prediction and a 20% prediction are treated equally here."
     ),
     'RSI-Filtered': (
         "Enters when the model is bullish and BTC's RSI is below 70. "
-        "Avoids opening a long when the market is already overbought, "
-        "reducing the risk of entering at a local top."
+        "RSI above 70 signals an overbought market — entering there increases the risk of buying at a local top. "
+        "This filter reduces trade frequency but aims to improve entry quality by avoiding momentum extremes."
     ),
     'Trend Confirmed': (
-        "Enters when the model is bullish and BTC is trading above its 50-day moving average. "
-        "Only goes long in an established uptrend — avoids fighting a bear market."
+        "Enters when the model is bullish and BTC is trading above its 50-day simple moving average. "
+        "The 50 SMA acts as a regime filter: above it signals an uptrend, below it suggests a correction "
+        "or bear market. Avoids counter-trend longs at the cost of missing early recovery trades."
     ),
 }
 
@@ -299,71 +323,84 @@ def render():
             help="Move this forward for a more realistic out-of-sample test. Earlier dates include the 2019–2021 bull run.",
         )
 
-    # ─── Customize expander ─────────────────────────────────────────────────
-    with st.expander("Customize"):
-        st.markdown("**Strategy**")
-        c1, c2 = st.columns(2)
-        with c1:
-            strategy = st.selectbox(
-                "Strategy",
-                ["All Signals", "Large Move Signals", "RSI-Filtered", "Trend Confirmed"],
-                key='strat_strategy',
-            )
-        with c2:
-            confidence_filter = st.selectbox(
-                "Confidence Filter", ["All", "HIGH", "MEDIUM", "LOW"],
-                key='strat_confidence',
-                help="Only take trades matching this confidence level.",
-            )
+    # ─── Controls: preset values or custom sliders ──────────────────────────
+    if preset == 'Custom':
+        with st.expander("Customize", expanded=True):
+            st.markdown("**Strategy**")
+            c1, c2 = st.columns(2)
+            with c1:
+                strategy = st.selectbox(
+                    "Strategy",
+                    ["All Signals", "Large Move Signals", "RSI-Filtered", "Trend Confirmed"],
+                    key='strat_strategy',
+                )
+            with c2:
+                confidence_filter = st.selectbox(
+                    "Confidence Filter", ["All", "HIGH", "MEDIUM", "LOW"],
+                    key='strat_confidence',
+                    help="Only take trades matching this confidence level.",
+                )
 
-        st.markdown("**Risk Management**")
-        c3, c4 = st.columns(2)
-        with c3:
-            stop_loss_pct = st.slider(
-                "Stop Loss (%)", 0.0, 20.0, key='strat_sl', step=0.5,
-                help="0 = disabled. Closes position if price drops by this %.",
-            )
-        with c4:
-            take_profit_pct = st.slider(
-                "Take Profit (%)", 0.0, 50.0, key='strat_tp', step=1.0,
-                help="0 = disabled. Closes position if price rises by this %.",
-            )
+            st.markdown("**Risk Management**")
+            c3, c4 = st.columns(2)
+            with c3:
+                stop_loss_pct = st.slider(
+                    "Stop Loss (%)", 0.0, 20.0, key='strat_sl', step=0.5,
+                    help="0 = disabled. Closes position if price drops by this %.",
+                )
+            with c4:
+                take_profit_pct = st.slider(
+                    "Take Profit (%)", 0.0, 50.0, key='strat_tp', step=1.0,
+                    help="0 = disabled. Closes position if price rises by this %.",
+                )
 
-        st.markdown("**Execution**")
-        c5, c6 = st.columns(2)
-        with c5:
-            leverage = st.slider(
-                "Leverage", 1.0, 40.0, key='strat_leverage', step=0.5,
-                help="1x = no leverage (spot). Higher = more risk and reward.",
-            )
-            if leverage > 10:
-                st.warning(f"At {leverage}x, a {100/leverage:.1f}% drop = liquidation.")
-        with c6:
-            fees_pct = st.slider(
-                "Trading Fees (%)", 0.0, 1.0, key='strat_fees', step=0.05,
-                help="Round-trip cost per trade (entry + exit). 0.2% is typical for spot crypto.",
-            ) / 100
+            st.markdown("**Execution**")
+            c5, c6 = st.columns(2)
+            with c5:
+                leverage = st.slider(
+                    "Leverage", 1.0, 40.0, key='strat_leverage', step=0.5,
+                    help="1x = no leverage (spot). Higher = more risk and reward.",
+                )
+                if leverage > 10:
+                    st.warning(f"At {leverage}x, a {100/leverage:.1f}% drop = liquidation.")
+            with c6:
+                fees_pct = st.slider(
+                    "Trading Fees (%)", 0.0, 1.0, key='strat_fees', step=0.05,
+                    help="Round-trip cost per trade (entry + exit). 0.2% is typical for spot crypto.",
+                ) / 100
 
-        c7, c8 = st.columns(2)
-        with c7:
-            slippage_pct = st.slider(
-                "Slippage (%)", 0.0, 0.5, key='strat_slippage', step=0.05,
-                help="Market impact on fill price. Entry costs more, exits pay less. "
-                     "0.1% is typical for BTC on major exchanges.",
-            ) / 100
-        with c8:
-            funding_rate = st.slider(
-                "Funding Rate (%/day)", 0.0, 0.10, key='strat_funding', step=0.005,
-                help="Daily cost of holding a leveraged position (perpetual futures). "
-                     "0.03%/day = 0.01% per 8h, the standard Binance/Bybit rate. "
-                     "Has no effect at 1x leverage (spot).",
-                format="%.3f",
-            ) / 100
-            if leverage == 1.0:
-                st.caption("Not applicable at 1x (spot).")
+            c7, c8 = st.columns(2)
+            with c7:
+                slippage_pct = st.slider(
+                    "Slippage (%)", 0.0, 0.5, key='strat_slippage', step=0.05,
+                    help="Market impact on fill price. Entry costs more, exits pay less. "
+                         "0.1% is typical for BTC on major exchanges.",
+                ) / 100
+            with c8:
+                funding_rate = st.slider(
+                    "Funding Rate (%/day)", 0.0, 0.10, key='strat_funding', step=0.005,
+                    help="Daily cost of holding a leveraged position (perpetual futures). "
+                         "0.03%/day = 0.01% per 8h, the standard Binance/Bybit rate. "
+                         "Has no effect at 1x leverage (spot).",
+                    format="%.3f",
+                ) / 100
+                if leverage == 1.0:
+                    st.caption("Not applicable at 1x (spot).")
 
-    # ─── Strategy description card ──────────────────────────────────────────
-    st.info(f"**{strategy}** — {STRATEGY_DESCRIPTIONS[strategy]}")
+        st.info(f"**{strategy}** — {STRATEGY_DESCRIPTIONS[strategy]}")
+
+    else:
+        p             = PRESETS[preset]
+        strategy      = p['strategy']
+        confidence_filter = p['confidence_filter']
+        stop_loss_pct = p['stop_loss_pct']
+        take_profit_pct = p['take_profit_pct']
+        leverage      = p['leverage']
+        fees_pct      = p['fees_pct'] / 100
+        slippage_pct  = p['slippage_pct'] / 100
+        funding_rate  = p['funding_rate'] / 100
+
+        st.info(PROFILE_DESCRIPTIONS[preset])
 
     # ─── Run simulation ─────────────────────────────────────────────────────
     trades = simulate_strategy(
