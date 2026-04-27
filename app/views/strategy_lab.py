@@ -320,7 +320,6 @@ def render():
             "Profile",
             list(PRESETS.keys()),
             key='strategy_preset',
-            help="Conservative: 1x, SL 5%, TP 15% — Moderate: 2x, SL 8%, TP 20%, high-confidence only — Aggressive: 5x, SL 10%, TP 30%",
         )
 
     _sync_preset(preset)
