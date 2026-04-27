@@ -393,11 +393,10 @@ def render():
                     "Funding Rate (%/day)", 0.0, 0.10, key='strat_funding', step=0.005,
                     help="Daily cost of holding a leveraged position (perpetual futures). "
                          "0.03%/day = 0.01% per 8h, the standard Binance/Bybit rate. "
-                         "Has no effect at 1x leverage (spot).",
+                         "Only applies above 1x leverage.",
                     format="%.3f",
+                    disabled=(leverage == 1.0),
                 ) / 100
-                if leverage == 1.0:
-                    st.caption("Not applicable at 1x (spot).")
 
         st.info(f"**{strategy}** — {STRATEGY_DESCRIPTIONS[strategy]}")
 

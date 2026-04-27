@@ -220,23 +220,3 @@ def render():
 
     st.dataframe(pd.DataFrame(confidence_data), use_container_width=True, hide_index=True)
 
-    st.markdown("---")
-
-    # ─── Why LSTM/GRU failed ───
-    st.markdown("### Why Deep Learning Failed Here")
-    st.markdown(
-        """
-        LSTM and GRU models performed at coin-flip level (~50% direction accuracy).
-        This is a valuable negative result:
-
-        - **Insufficient data**: even with ~3,000 training rows, recurrent neural networks
-          need far more sequences (typically 10,000+) to learn meaningful temporal patterns.
-        - **Noise dominance**: Financial returns are extremely noisy. Tree-based models
-          handle this better because they make discrete split decisions rather than trying
-          to learn smooth continuous mappings.
-        - **XGBoost wins** because it naturally handles mixed feature types, is robust to
-          noise, and doesn't require thousands of training sequences.
-
-        This informed our decision to use XGBoost as the production model.
-        """
-    )

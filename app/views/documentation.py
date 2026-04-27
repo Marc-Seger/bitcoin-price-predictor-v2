@@ -159,6 +159,20 @@ def render():
         **Naive baseline** (always predict UP): **52.3%** direction accuracy.
         XGBoost achieves a **+2.9 percentage point edge** over the naive baseline — modest but consistent.
 
+        ### Why XGBoost Over Deep Learning?
+        LSTM and GRU models were tested and performed at near coin-flip level (~50% direction accuracy).
+        Three reasons explain why tree-based models win here:
+
+        - **Insufficient data**: recurrent neural networks typically need 10,000+ training sequences to
+          learn meaningful temporal patterns. With ~3,000 daily rows (BTC data only exists since 2010),
+          there is simply not enough signal for the network weights to converge meaningfully.
+        - **Noise dominance**: financial returns are extremely noisy. XGBoost makes discrete split
+          decisions on individual features, which is robust to this noise. Neural networks try to learn
+          smooth continuous mappings — a harder problem when most of the variance is random.
+        - **Mixed feature types**: the 52 features include prices, ratios, oscillators, on-chain
+          metrics, and macro data at very different scales. XGBoost handles this natively;
+          neural networks require careful normalisation and are more sensitive to outliers.
+
         ### Confidence Levels
         The predicted return magnitude is used as a confidence proxy:
         - **HIGH** (>5% predicted move): 65.7% direction accuracy — meaningful edge
