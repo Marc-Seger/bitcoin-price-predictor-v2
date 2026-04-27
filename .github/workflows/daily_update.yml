@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   update-and-predict:
@@ -27,7 +28,7 @@ jobs:
         run: |
           pip install --upgrade pip
           pip install pandas numpy yfinance fredapi pytrends requests python-dotenv \
-                      xgboost scikit-learn joblib
+                      xgboost scikit-learn joblib beautifulsoup4 lxml
 
       - name: Download master_df from latest release
         env:
@@ -44,6 +45,49 @@ jobs:
           FRED_API_KEY: ${{ secrets.FRED_API_KEY }}
         run: |
           python scripts/update_data.py
+
+      - name: Validate pipeline data quality
+        id: validate
+        continue-on-error: true
+        run: |
+          python scripts/validate_pipeline.py 2>&1 | tee /tmp/validate_output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Open data-quality issue if validation failed
+        if: steps.validate.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="[Data Quality] Pipeline validation failed — $(date -u +%Y-%m-%d)"
+
+          BODY=$(printf '%s\n' \
+            '## Data Quality Alert' \
+            '' \
+            "**Date**: $(date -u +%Y-%m-%d)" \
+            '' \
+            'The daily pipeline validation script detected one or more failures.' \
+            '' \
+            '### Validation Output' \
+            '```' \
+            "$(cat /tmp/validate_output.txt)" \
+            '```' \
+            '' \
+            '---' \
+            '_Opened automatically by the Daily Data Update & Prediction workflow._')
+
+          EXISTING=$(gh issue list --label "data-quality" --state open --json number --jq length)
+          if [ "$EXISTING" -eq "0" ]; then
+            gh issue create \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --label "data-quality" || \
+            gh issue create \
+              --title "$TITLE" \
+              --body "$BODY"
+            echo "Data quality issue created."
+          else
+            echo "Open data-quality issue already exists — skipping duplicate."
+          fi
 
       - name: Train production model
         run: |
