@@ -19,29 +19,50 @@ from components import CARD_COLORS, DARK_LAYOUT, styled_metric
 
 PRESETS = {
     'Conservative': {
-        'strategy': 'Model Direction', 'confidence_filter': 'All',
+        'strategy': 'All Signals', 'confidence_filter': 'All',
         'stop_loss_pct': 5.0, 'take_profit_pct': 15.0,
-        'leverage': 1.0, 'fees_pct': 0.2,
+        'leverage': 1.0, 'fees_pct': 0.2, 'slippage_pct': 0.1, 'funding_rate': 0.0,
     },
     'Moderate': {
-        'strategy': 'High Confidence Only', 'confidence_filter': 'HIGH',
+        'strategy': 'Large Move Signals', 'confidence_filter': 'HIGH',
         'stop_loss_pct': 8.0, 'take_profit_pct': 20.0,
-        'leverage': 2.0, 'fees_pct': 0.2,
+        'leverage': 2.0, 'fees_pct': 0.2, 'slippage_pct': 0.1, 'funding_rate': 0.03,
     },
     'Aggressive': {
-        'strategy': 'Model Direction', 'confidence_filter': 'HIGH',
+        'strategy': 'All Signals', 'confidence_filter': 'HIGH',
         'stop_loss_pct': 10.0, 'take_profit_pct': 30.0,
-        'leverage': 5.0, 'fees_pct': 0.2,
+        'leverage': 5.0, 'fees_pct': 0.2, 'slippage_pct': 0.1, 'funding_rate': 0.03,
     },
     'Custom': {
-        'strategy': 'Model Direction', 'confidence_filter': 'All',
+        'strategy': 'All Signals', 'confidence_filter': 'All',
         'stop_loss_pct': 5.0, 'take_profit_pct': 15.0,
-        'leverage': 1.0, 'fees_pct': 0.2,
+        'leverage': 1.0, 'fees_pct': 0.2, 'slippage_pct': 0.1, 'funding_rate': 0.0,
     },
 }
 
+STRATEGY_DESCRIPTIONS = {
+    'All Signals': (
+        "Goes long whenever the model predicts any positive 7-day return, regardless of size. "
+        "Trades roughly once a week. Best for testing the model's raw directional edge."
+    ),
+    'Large Move Signals': (
+        "Only enters when the model predicts a return above 5% — skipping smaller signals. "
+        "Fewer trades, but targets the model's most decisive calls. "
+        "Note: the 5% threshold reflects the predicted size of the move, not the model's certainty."
+    ),
+    'RSI-Filtered': (
+        "Enters when the model is bullish and BTC's RSI is below 70. "
+        "Avoids opening a long when the market is already overbought, "
+        "reducing the risk of entering at a local top."
+    ),
+    'Trend Confirmed': (
+        "Enters when the model is bullish and BTC is trading above its 50-day moving average. "
+        "Only goes long in an established uptrend — avoids fighting a bear market."
+    ),
+}
+
 _SS_KEYS = ['strat_strategy', 'strat_confidence', 'strat_sl', 'strat_tp',
-            'strat_leverage', 'strat_fees']
+            'strat_leverage', 'strat_fees', 'strat_slippage', 'strat_funding']
 
 
 def _init_session_state():
@@ -53,6 +74,8 @@ def _init_session_state():
         st.session_state['strat_tp']         = p['take_profit_pct']
         st.session_state['strat_leverage']   = p['leverage']
         st.session_state['strat_fees']       = p['fees_pct']
+        st.session_state['strat_slippage']   = p['slippage_pct']
+        st.session_state['strat_funding']    = p['funding_rate']
         st.session_state['_strat_last_preset'] = 'Conservative'
 
 
@@ -67,6 +90,8 @@ def _sync_preset(preset: str):
             st.session_state['strat_tp']         = p['take_profit_pct']
             st.session_state['strat_leverage']   = p['leverage']
             st.session_state['strat_fees']       = p['fees_pct']
+            st.session_state['strat_slippage']   = p['slippage_pct']
+            st.session_state['strat_funding']    = p['funding_rate']
         st.session_state['_strat_last_preset'] = preset
 
 
@@ -93,7 +118,8 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
                       strategy: str, leverage: float,
                       stop_loss_pct: float, take_profit_pct: float,
                       confidence_filter: str, fees_pct: float = 0.002,
-                      start_date=None) -> pd.DataFrame:
+                      start_date=None, slippage_pct: float = 0.001,
+                      funding_rate_daily: float = 0.0) -> pd.DataFrame:
     trades = []
     initial_capital = 10000.0
     capital = initial_capital
@@ -122,20 +148,20 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
 
         take_trade = False
 
-        if strategy == 'Model Direction':
+        if strategy == 'All Signals':
             take_trade = predicted_return > 0
 
-        elif strategy == 'High Confidence Only':
+        elif strategy == 'Large Move Signals':
             take_trade = predicted_return > 0 and confidence == 'HIGH'
 
-        elif strategy == 'Model + RSI Filter':
+        elif strategy == 'RSI-Filtered':
             if pred_date in filter_df.index:
                 rsi_val = filter_df.loc[pred_date, 'RSI_Close_BTC']
                 take_trade = predicted_return > 0 and (pd.isna(rsi_val) or rsi_val < 70)
             else:
                 take_trade = predicted_return > 0
 
-        elif strategy == 'Trend Following':
+        elif strategy == 'Trend Confirmed':
             if pred_date in filter_df.index:
                 close_val = filter_df.loc[pred_date, 'Close_BTC']
                 sma_val = filter_df.loc[pred_date, 'SMA_50_Close_BTC']
@@ -165,49 +191,57 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
         if len(future_dates) == 0:
             continue
 
-        exit_price = entry_price
-        exit_date = future_dates[-1]
+        # Apply entry slippage — you pay slightly more to buy
+        actual_entry = entry_price * (1 + slippage_pct)
+
+        # Compute trigger levels from actual entry price
+        liq_trigger = actual_entry * (1 - 1 / leverage) if leverage > 1 else None
+        sl_trigger  = actual_entry * (1 - stop_loss_pct / 100) if stop_loss_pct > 0 else None
+        tp_trigger  = actual_entry * (1 + take_profit_pct / 100) if take_profit_pct > 0 else None
+
+        actual_exit = actual_entry
+        exit_date   = future_dates[-1]
         exit_reason = 'End of window'
-        liquidated = False
-        liquidation_price = entry_price * (1 - 1 / leverage) if leverage > 1 else 0
+        liquidated  = False
 
         for day in future_dates:
             if day not in prices.index:
                 continue
 
-            day_high = prices.loc[day, 'High_BTC']
-            day_low  = prices.loc[day, 'Low_BTC']
+            day_high  = prices.loc[day, 'High_BTC']
+            day_low   = prices.loc[day, 'Low_BTC']
             day_close = prices.loc[day, 'Close_BTC']
 
-            if leverage > 1 and day_low <= liquidation_price:
-                exit_price = liquidation_price
-                exit_date = day
-                exit_reason = f'LIQUIDATED at ${liquidation_price:,.0f}'
-                liquidated = True
+            if liq_trigger and day_low <= liq_trigger:
+                actual_exit = liq_trigger * (1 - slippage_pct)
+                exit_date   = day
+                exit_reason = f'LIQUIDATED at ${liq_trigger:,.0f}'
+                liquidated  = True
                 break
 
-            if stop_loss_pct > 0:
-                sl_price = entry_price * (1 - stop_loss_pct / 100)
-                if day_low <= sl_price:
-                    exit_price = sl_price
-                    exit_date = day
-                    exit_reason = f'Stop loss at ${sl_price:,.0f}'
-                    break
+            if sl_trigger and day_low <= sl_trigger:
+                actual_exit = sl_trigger * (1 - slippage_pct)
+                exit_date   = day
+                exit_reason = f'Stop loss at ${sl_trigger:,.0f}'
+                break
 
-            if take_profit_pct > 0:
-                tp_price = entry_price * (1 + take_profit_pct / 100)
-                if day_high >= tp_price:
-                    exit_price = tp_price
-                    exit_date = day
-                    exit_reason = f'Take profit at ${tp_price:,.0f}'
-                    break
+            if tp_trigger and day_high >= tp_trigger:
+                actual_exit = tp_trigger * (1 - slippage_pct)
+                exit_date   = day
+                exit_reason = f'Take profit at ${tp_trigger:,.0f}'
+                break
 
-            exit_price = day_close
-            exit_date = day
+            actual_exit = day_close * (1 - slippage_pct)
+            exit_date   = day
 
-        raw_return = (exit_price / entry_price) - 1
+        raw_return = (actual_exit / actual_entry) - 1
         raw_return -= fees_pct
         leveraged_return = raw_return * leverage
+
+        # Funding fees on notional (perpetual futures cost for leveraged positions)
+        if leverage > 1 and funding_rate_daily > 0:
+            days_held = max((exit_date - pred_date).days, 1)
+            leveraged_return -= leverage * funding_rate_daily * days_held
 
         if liquidated:
             pnl = -capital
@@ -219,7 +253,7 @@ def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
         trades.append({
             'date': pred_date, 'action': 'LONG',
             'exit_date': exit_date,
-            'entry_price': entry_price, 'exit_price': exit_price,
+            'entry_price': actual_entry, 'exit_price': actual_exit,
             'return_pct': raw_return * 100, 'leveraged_return_pct': leveraged_return * 100,
             'pnl': pnl, 'capital_after': capital,
             'exit_reason': exit_reason, 'confidence': confidence,
@@ -272,10 +306,8 @@ def render():
         with c1:
             strategy = st.selectbox(
                 "Strategy",
-                ["Model Direction", "High Confidence Only", "Model + RSI Filter", "Trend Following"],
+                ["All Signals", "Large Move Signals", "RSI-Filtered", "Trend Confirmed"],
                 key='strat_strategy',
-                help="Model Direction: long when UP. High Confidence: only large predicted moves. "
-                     "RSI Filter: skip overbought entries. Trend Following: only above SMA50.",
             )
         with c2:
             confidence_filter = st.selectbox(
@@ -302,7 +334,7 @@ def render():
         with c5:
             leverage = st.slider(
                 "Leverage", 1.0, 40.0, key='strat_leverage', step=0.5,
-                help="1x = no leverage. Higher = more risk and reward.",
+                help="1x = no leverage (spot). Higher = more risk and reward.",
             )
             if leverage > 10:
                 st.warning(f"At {leverage}x, a {100/leverage:.1f}% drop = liquidation.")
@@ -312,11 +344,34 @@ def render():
                 help="Round-trip cost per trade (entry + exit). 0.2% is typical for spot crypto.",
             ) / 100
 
+        c7, c8 = st.columns(2)
+        with c7:
+            slippage_pct = st.slider(
+                "Slippage (%)", 0.0, 0.5, key='strat_slippage', step=0.05,
+                help="Market impact on fill price. Entry costs more, exits pay less. "
+                     "0.1% is typical for BTC on major exchanges.",
+            ) / 100
+        with c8:
+            funding_rate = st.slider(
+                "Funding Rate (%/day)", 0.0, 0.10, key='strat_funding', step=0.005,
+                help="Daily cost of holding a leveraged position (perpetual futures). "
+                     "0.03%/day = 0.01% per 8h, the standard Binance/Bybit rate. "
+                     "Has no effect at 1x leverage (spot).",
+                format="%.3f",
+            ) / 100
+            if leverage == 1.0:
+                st.caption("Not applicable at 1x (spot).")
+
+    # ─── Strategy description card ──────────────────────────────────────────
+    st.info(f"**{strategy}** — {STRATEGY_DESCRIPTIONS[strategy]}")
+
     # ─── Run simulation ─────────────────────────────────────────────────────
     trades = simulate_strategy(
         preds, prices, strategy, leverage,
         stop_loss_pct, take_profit_pct,
         confidence_filter, fees_pct, start_date,
+        slippage_pct=slippage_pct,
+        funding_rate_daily=funding_rate,
     )
 
     if trades.empty:
