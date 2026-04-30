@@ -234,31 +234,45 @@ def render():
 
     @st.cache_data(ttl=3600)
     def _build_prediction_log():
+        # Load BTC close prices once — used by both walk-forward and live sections
+        prices = pd.Series(dtype=float)
+        if os.path.exists(MASTER_DF_PATH):
+            prices = pd.read_csv(
+                MASTER_DF_PATH, index_col=0, parse_dates=True,
+                usecols=['date', 'Close_BTC'], low_memory=False
+            )['Close_BTC'].dropna()
+
+        def _btc_price(date):
+            """Look up BTC close price for a date, using asof for weekend gaps."""
+            if prices.empty:
+                return float('nan')
+            ts = pd.Timestamp(date)
+            if ts in prices.index:
+                return float(prices[ts])
+            try:
+                return float(prices.asof(ts))
+            except Exception:
+                return float('nan')
+
         # ── 1. Walk-forward history ──────────────────────────────────────
         wf_path = os.path.join(RESULTS_DIR, 'XGB_7d_walkforward_results.csv')
         if not os.path.exists(wf_path):
             wf = pd.DataFrame()
         else:
             wf_raw = pd.read_csv(wf_path, index_col=0, parse_dates=True)
-            # Load BTC close prices to look up price at prediction date and d+7
-            prices = pd.read_csv(
-                MASTER_DF_PATH, index_col=0, parse_dates=True,
-                usecols=['date', 'Close_BTC'], low_memory=False
-            )['Close_BTC']
-
             rows = []
             for pred_date, row in wf_raw.iterrows():
                 target_date = pred_date + pd.Timedelta(days=7)
-                btc_pred  = float(prices.get(pred_date,  float('nan')))
-                btc_target = float(prices.asof(target_date)) if target_date <= prices.index.max() else float('nan')
-                pred_ret  = float(row['predicted'])
+                btc_pred   = _btc_price(pred_date)
+                btc_target = _btc_price(target_date) if target_date <= prices.index.max() else float('nan')
+                pred_ret   = float(row['predicted'])
                 actual_ret = float(row['actual'])
-                correct = 1 if (pred_ret > 0) == (actual_ret > 0) else 0
+                correct    = 1 if (pred_ret > 0) == (actual_ret > 0) else 0
                 abs_p = abs(pred_ret)
                 conf = 'HIGH' if abs_p > 0.05 else ('MEDIUM' if abs_p > 0.02 else 'LOW')
                 rows.append({
-                    'prediction_date': pred_date,
-                    'target_date':     target_date,
+                    'prediction_date':  pred_date,
+                    'target_date':      target_date,
                     'predicted_return': pred_ret,
                     'direction':        'UP' if pred_ret > 0 else 'DOWN',
                     'confidence':       conf,
@@ -280,21 +294,44 @@ def render():
             rows = []
             for pred_date, row in tl.iterrows():
                 pending = pd.isna(row.get('actual_price')) or str(row.get('actual_price')) == ''
-                actual_ret = float(row['actual_return']) if not pending and pd.notna(row.get('actual_return')) else float('nan')
-                pred_ret   = float(row['predicted_return'])
-                correct    = int(float(row['correct'])) if not pending and pd.notna(row.get('correct')) else None
+                pred_ret = float(row['predicted_return'])
+
+                # BTC at prediction: use trade_log field if present, else fall back to master_df
+                raw_btc_pred = row.get('btc_price_at_prediction')
+                btc_pred = float(raw_btc_pred) if pd.notna(raw_btc_pred) else _btc_price(pred_date)
+
+                btc_target = float(row['actual_price']) if not pending and pd.notna(row.get('actual_price')) else float('nan')
+
+                # actual_return: use trade_log field if present, else compute from prices
+                raw_ret = row.get('actual_return')
+                if pd.notna(raw_ret) and str(raw_ret) != '':
+                    actual_ret = float(raw_ret)
+                elif not pending and not pd.isna(btc_pred) and btc_pred > 0:
+                    actual_ret = (btc_target / btc_pred) - 1
+                else:
+                    actual_ret = float('nan')
+
+                # correct: use trade_log flag if present, else derive from returns
+                raw_correct = row.get('correct')
+                if pd.notna(raw_correct) and str(raw_correct) != '':
+                    correct = int(float(raw_correct))
+                elif not pending and not pd.isna(actual_ret):
+                    correct = 1 if (pred_ret > 0) == (actual_ret > 0) else 0
+                else:
+                    correct = None
+
                 rows.append({
-                    'prediction_date':   pred_date,
-                    'target_date':       row['target_date'],
-                    'predicted_return':  pred_ret,
-                    'direction':         str(row.get('direction', 'UP' if pred_ret > 0 else 'DOWN')),
-                    'confidence':        str(row.get('confidence', '—')),
-                    'btc_at_prediction': float(row['btc_price_at_prediction']) if pd.notna(row.get('btc_price_at_prediction')) else float('nan'),
-                    'btc_at_target':     float(row['actual_price']) if not pending and pd.notna(row.get('actual_price')) else float('nan'),
-                    'actual_return':     actual_ret,
-                    'correct':           correct,
-                    'pending':           pending,
-                    'source':            'live',
+                    'prediction_date':  pred_date,
+                    'target_date':      row['target_date'],
+                    'predicted_return': pred_ret,
+                    'direction':        str(row.get('direction', 'UP' if pred_ret > 0 else 'DOWN')),
+                    'confidence':       str(row.get('confidence', '—')),
+                    'btc_at_prediction': btc_pred,
+                    'btc_at_target':    btc_target,
+                    'actual_return':    actual_ret,
+                    'correct':          correct,
+                    'pending':          pending,
+                    'source':           'live',
                 })
             live = pd.DataFrame(rows).set_index('prediction_date')
 
