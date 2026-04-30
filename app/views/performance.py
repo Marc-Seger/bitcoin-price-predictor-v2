@@ -307,7 +307,11 @@ def render():
             combined = wf
         else:
             combined = wf[~wf.index.isin(live.index)]
-            combined = pd.concat([combined, live]).sort_index()
+            combined = pd.concat([combined, live])
+
+        # Force index to DatetimeIndex and drop any unparseable rows
+        combined.index = pd.to_datetime(combined.index, errors='coerce')
+        combined = combined[combined.index.notna()].sort_index()
 
         return combined
 
