@@ -465,8 +465,8 @@ def render():
     with tab_map["Cross-Asset"]:
         st.markdown("### Cross-Asset Comparison")
 
-        timeframe_cross = st.selectbox("Period", ["3M", "6M", "1Y", "2Y"], index=2, key="cross_tf")
-        days_cross = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730}
+        timeframe_cross = st.selectbox("Period", ["3M", "6M", "1Y", "2Y", "All"], index=2, key="cross_tf")
+        days_cross = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730, 'All': len(df)}
         cross_df = df.tail(days_cross[timeframe_cross])
 
         # DXY excluded here — it's a model input / index, not an investable asset.
@@ -564,19 +564,23 @@ def render():
         st.markdown("**Drawdown from Peak**")
         if close_cols:
             fig_dd = go.Figure()
+            dd_min = 0.0
             for a, cc in close_cols.items():
                 series = cross_df[cc].dropna()
                 if series.empty:
                     continue
                 rolling_max = series.cummax()
                 drawdown = (series / rolling_max - 1) * 100
+                dd_min = min(dd_min, float(drawdown.min()))
                 fig_dd.add_trace(go.Scatter(
                     x=drawdown.index, y=drawdown,
                     name=a, line=dict(color=ASSET_COLORS.get(a, '#e8edf5'), width=1.5),
                 ))
             fig_dd.add_hline(y=0, line_color='#56657e', opacity=0.3)
             fig_dd.update_layout(
-                height=280, yaxis_title="Drawdown %", yaxis_range=[-100, 5], **DARK_LAYOUT
+                height=280, yaxis_title="Drawdown %",
+                yaxis_range=[dd_min - 5, 0],
+                **DARK_LAYOUT
             )
             st.plotly_chart(fig_dd, use_container_width=True)
 
