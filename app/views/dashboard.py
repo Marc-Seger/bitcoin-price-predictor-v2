@@ -33,11 +33,16 @@ def render():
     ASSET_LABELS = {'BTC': 'Bitcoin (BTC)', 'SP500': 'S&P 500', 'NASDAQ': 'NASDAQ',
                     'GOLD': 'Gold', 'DXY': 'Dollar Index'}
 
-    # Asset is stored in session state; Price tab owns the selector
-    asset = st.session_state.get('dash_asset', 'BTC')
+    # ─── Asset selector — drives KPI cards and all tabs ───
+    asset = st.selectbox(
+        "Asset",
+        list(ASSET_LABELS.keys()),
+        format_func=lambda a: ASSET_LABELS[a],
+        key='dash_asset',
+    )
     close_col = f'Close_{asset}'
 
-    # ─── KPI cards (always visible, driven by asset selected in Price tab) ───
+    # ─── KPI cards ───
     valid = df.dropna(subset=[close_col])
     if valid.empty:
         st.warning(f"No data available for {ASSET_LABELS.get(asset, asset)}.")
@@ -52,7 +57,6 @@ def render():
     data_date = valid.index[-1].strftime("%d %b %Y")
     st.caption(f"Data as of {data_date}")
 
-    # Format price: $ for USD assets, plain for DXY index
     price_fmt = f"${price:,.0f}" if asset != 'DXY' else f"{price:,.2f}"
 
     cols = st.columns(5)
@@ -66,35 +70,33 @@ def render():
         styled_metric("30d Change", f"{chg_30d:+.1%}", color='emerald' if chg_30d >= 0 else 'rose')
     with cols[3]:
         ath_dist = (price / ath - 1)
-        styled_metric("From ATH", f"{ath_dist:+.1%}", color='amber')
+        styled_metric("From ATH", f"{ath_dist:+.1%}", color='emerald' if ath_dist >= 0 else 'rose')
     with cols[4]:
         rsi_col = f'RSI_Close_{asset}'
         rsi_val = latest.get(rsi_col) if rsi_col in df.columns else None
         if pd.notna(rsi_val):
-            label = "Overbought" if rsi_val > 70 else ("Oversold" if rsi_val < 30 else "Neutral")
-            styled_metric("RSI (current)", f"{rsi_val:.0f} — {label}", color='violet')
+            if rsi_val > 70:
+                rsi_label, rsi_color = "Overbought", 'emerald'
+            elif rsi_val < 30:
+                rsi_label, rsi_color = "Oversold", 'rose'
+            else:
+                rsi_label, rsi_color = "Neutral", 'amber'
+            styled_metric("RSI (14)", f"{rsi_val:.0f} — {rsi_label}", color=rsi_color)
         else:
             styled_metric("RSI (14)", "—", color='violet')
 
-    # ─── Tabs ───
-    tab_price, tab_sentiment, tab_onchain, tab_cross, tab_ta = st.tabs([
-        "Price & Indicators", "Sentiment", "On-Chain", "Cross-Asset", "Technical Analysis"
-    ])
+    # ─── Dynamic tabs — Sentiment and On-Chain are BTC-only ───
+    tab_names = ["Price & Indicators"]
+    if asset == 'BTC':
+        tab_names += ["Sentiment", "On-Chain"]
+    tab_names += ["Cross-Asset", "Technical Analysis"]
+    tabs = st.tabs(tab_names)
+    tab_map = {name: tabs[i] for i, name in enumerate(tab_names)}
 
     # ══════════════════════════════════════════
     # TAB 1: Price & Indicators
     # ══════════════════════════════════════════
-    with tab_price:
-        # Asset selector lives here — drives KPI cards above via session_state
-        asset = st.selectbox(
-            "Asset",
-            list(ASSET_LABELS.keys()),
-            index=list(ASSET_LABELS.keys()).index(st.session_state.get('dash_asset', 'BTC')),
-            format_func=lambda a: ASSET_LABELS[a],
-            key='dash_asset',
-        )
-        close_col = f'Close_{asset}'
-
+    with tab_map["Price & Indicators"]:
         # Row 1: Overlays + Subplots
         col_overlay, col_sub = st.columns(2)
         with col_overlay:
@@ -306,9 +308,10 @@ def render():
         st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
     # ══════════════════════════════════════════
-    # TAB 2: Sentiment
+    # TAB 2: Sentiment (BTC only)
     # ══════════════════════════════════════════
-    with tab_sentiment:
+    if "Sentiment" in tab_map:
+     with tab_map["Sentiment"]:
         sent_tf = st.selectbox("Period", ["3M", "6M", "1Y", "2Y", "All"], index=2, key="sent_tf")
         sent_days = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730, 'All': len(df)}
         sent_n = sent_days[sent_tf]
@@ -416,9 +419,10 @@ def render():
                 st.info("ETF flow data not available for the selected period (data starts Jan 2024).")
 
     # ══════════════════════════════════════════
-    # TAB 3: On-Chain
+    # TAB 3: On-Chain (BTC only)
     # ══════════════════════════════════════════
-    with tab_onchain:
+    if "On-Chain" in tab_map:
+     with tab_map["On-Chain"]:
         oc_tf = st.selectbox("Period", ["3M", "6M", "1Y", "2Y", "All"], index=2, key="oc_tf")
         oc_n = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730, 'All': len(df)}[oc_tf]
         st.markdown("### On-Chain Metrics")
@@ -458,7 +462,7 @@ def render():
     # ══════════════════════════════════════════
     # TAB 4: Cross-Asset
     # ══════════════════════════════════════════
-    with tab_cross:
+    with tab_map["Cross-Asset"]:
         st.markdown("### Cross-Asset Comparison")
 
         timeframe_cross = st.selectbox("Period", ["3M", "6M", "1Y", "2Y"], index=2, key="cross_tf")
@@ -509,18 +513,10 @@ def render():
     # ══════════════════════════════════════════
     # TAB 5: Technical Analysis
     # ══════════════════════════════════════════
-    with tab_ta:
-        col_a, col_b = st.columns([1, 1])
-        with col_a:
-            ta_asset = st.selectbox(
-                "Asset", list(ASSET_LABELS.keys()),
-                format_func=lambda a: ASSET_LABELS[a],
-                key='ta_asset',
-            )
-        with col_b:
-            ta_tf = st.selectbox(
-                "Timeframe", ["3M", "6M", "1Y", "2Y", "All"], index=3, key="ta_tf"
-            )
+    with tab_map["Technical Analysis"]:
+        ta_tf = st.selectbox(
+            "Timeframe", ["3M", "6M", "1Y", "2Y", "All"], index=3, key="ta_tf"
+        )
 
         drawings = st.multiselect(
             "Chart Drawings",
@@ -530,17 +526,17 @@ def render():
         )
 
         # Prepare columns and slice data
-        ta_close = f'Close_{ta_asset}'
-        ta_high  = f'High_{ta_asset}'
-        ta_low   = f'Low_{ta_asset}'
-        ta_open  = f'Open_{ta_asset}'
+        ta_close = f'Close_{asset}'
+        ta_high  = f'High_{asset}'
+        ta_low   = f'Low_{asset}'
+        ta_open  = f'Open_{asset}'
 
         ta_days = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730, 'All': len(df)}
         ta_n    = ta_days[ta_tf]
         ta_df   = df.dropna(subset=[ta_close]).tail(ta_n)
 
         if ta_df.empty:
-            st.warning(f"No data available for {ASSET_LABELS.get(ta_asset, ta_asset)}.")
+            st.warning(f"No data available for {ASSET_LABELS.get(asset, asset)}.")
         else:
             current_price = ta_df[ta_close].iloc[-1]
             hi_col = ta_high if ta_high in ta_df.columns else ta_close
@@ -554,14 +550,14 @@ def render():
                     x=ta_df.index,
                     open=ta_df[ta_open], high=ta_df[ta_high],
                     low=ta_df[ta_low],  close=ta_df[ta_close],
-                    name=ta_asset,
+                    name=asset,
                     increasing_line_color='#10b981', decreasing_line_color='#f43f5e',
                 ))
             else:
                 fig_ta.add_trace(go.Scatter(
                     x=ta_df.index, y=ta_df[ta_close],
-                    name=ta_asset,
-                    line=dict(color=ASSET_COLORS.get(ta_asset, '#3b82f6'), width=2),
+                    name=asset,
+                    line=dict(color=ASSET_COLORS.get(asset, '#3b82f6'), width=2),
                 ))
 
             # ── Drawing 1: Support & Resistance zones ──────────────────────
@@ -794,7 +790,7 @@ def render():
                     annotation_font=dict(size=10, color='#fbbf24'),
                 )
 
-                if ta_asset == 'BTC':
+                if asset == 'BTC':
                     vis_min = float(ta_df[lo_col].min()) * 0.9
                     vis_max = float(ta_df[hi_col].max()) * 1.1
                     cycle_peaks = [
@@ -812,14 +808,14 @@ def render():
                             )
 
             # ── Layout ─────────────────────────────────────────────────────
-            if ta_asset != 'BTC':
+            if asset != 'BTC':
                 fig_ta.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])])
 
             fig_ta.update_layout(
                 height=620,
                 xaxis_rangeslider_visible=False,
                 title=dict(
-                    text=f"{ASSET_LABELS.get(ta_asset, ta_asset)} — Technical Analysis",
+                    text=f"{ASSET_LABELS.get(asset, asset)} — Technical Analysis",
                     font=dict(size=14, color=TEXT_COLOR), x=0,
                 ),
                 **DARK_LAYOUT,
