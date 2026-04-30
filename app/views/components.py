@@ -25,7 +25,7 @@ ASSET_COLORS = {
     'BTC':    '#f7931a',
     'SP500':  '#3b82f6',
     'NASDAQ': '#06b6d4',
-    'GOLD':   '#f59e0b',
+    'GOLD':   '#fde047',  # bright yellow — distinct from BTC orange
     'DXY':    '#8b5cf6',
 }
 

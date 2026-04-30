@@ -465,10 +465,14 @@ def render():
         days_cross = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730}
         cross_df = df.tail(days_cross[timeframe_cross])
 
+        # DXY excluded here — it's a model input / index, not an investable asset.
+        # It remains available in the Price & Indicators asset selector.
+        CROSS_ASSETS = ['BTC', 'SP500', 'NASDAQ', 'GOLD']
+
         # Normalized performance
         st.markdown("**Normalized Performance (% change from start)**")
         perf_data = pd.DataFrame()
-        for a in ASSETS:
+        for a in CROSS_ASSETS:
             cc = f'Close_{a}'
             if cc in cross_df.columns:
                 series = cross_df[cc].dropna()
@@ -487,7 +491,7 @@ def render():
 
         # Correlation heatmap
         st.markdown(f"**{timeframe_cross} Return Correlation**")
-        close_cols = {a: f'Close_{a}' for a in ASSETS if f'Close_{a}' in cross_df.columns}
+        close_cols = {a: f'Close_{a}' for a in CROSS_ASSETS if f'Close_{a}' in cross_df.columns}
         if len(close_cols) > 1:
             returns = pd.DataFrame({a: cross_df[c].pct_change() for a, c in close_cols.items()})
             corr = returns.corr()
@@ -520,7 +524,7 @@ def render():
 
         drawings = st.multiselect(
             "Chart Drawings",
-            ["Support & Resistance", "Fibonacci Retracement", "Weekly Pivots", "ATH & Cycle Levels"],
+            ["Support & Resistance", "Fibonacci Retracement", "Monthly Pivots", "ATH & Cycle Levels"],
             default=[],
             help="Select one or more drawings to overlay on the chart.",
         )
@@ -562,51 +566,89 @@ def render():
 
             # ── Drawing 1: Support & Resistance zones ──────────────────────
             # Algorithm:
-            #   1. Scan each bar — it's a pivot high/low if it's the extreme
-            #      value within a window of n_pivot bars on each side.
-            #   2. Collect all pivot prices and cluster nearby values
-            #      (within 1.5% of each other) into single zones.
-            #   3. Score each zone by touch count; draw top 10.
-            #   4. Zones below current price = support (green),
-            #      zones above = resistance (red).
+            #   1. Scan each bar for pivot highs/lows (extreme within n_pivot bars).
+            #   2. Recency filter: only pivots whose last touch is ≤ 12 months ago.
+            #   3. Cluster nearby pivots (within 1.5%) into zones.
+            #   4. Score each zone with time-decay: each touch weighted by
+            #      exp(-days_since_touch / 365) so recent touches score higher.
+            #   5. Broken-level detection: if price has cleanly closed through the
+            #      zone (3 consecutive closes past it), mark it as broken (dimmed).
+            #   6. Draw top 10 active zones; broken zones shown dashed + dim.
             if "Support & Resistance" in drawings:
                 high_s = ta_df[hi_col]
                 low_s  = ta_df[lo_col]
+                close_s = ta_df[ta_close]
+                today_ts = ta_df.index[-1]
+                cutoff_12m = today_ts - pd.Timedelta(days=365)
 
-                # Adaptive window: roughly 2% of visible bars, min 5
                 n_pivot = max(5, len(ta_df) // 50)
 
-                pivot_prices = []
+                # Collect pivot (price, date) pairs
+                pivot_points = []  # (price, date)
                 for i in range(n_pivot, len(ta_df) - n_pivot):
+                    bar_date = ta_df.index[i]
                     if high_s.iloc[i] == high_s.iloc[i - n_pivot: i + n_pivot + 1].max():
-                        pivot_prices.append(float(high_s.iloc[i]))
+                        pivot_points.append((float(high_s.iloc[i]), bar_date))
                     if low_s.iloc[i] == low_s.iloc[i - n_pivot: i + n_pivot + 1].min():
-                        pivot_prices.append(float(low_s.iloc[i]))
+                        pivot_points.append((float(low_s.iloc[i]), bar_date))
 
-                def _cluster(prices, threshold=0.015):
-                    if not prices:
+                # Recency filter: keep only pivots last touched ≤ 12 months ago
+                pivot_points = [(p, d) for p, d in pivot_points if d >= cutoff_12m]
+
+                def _cluster_with_dates(points, threshold=0.015):
+                    if not points:
                         return []
-                    sorted_p = sorted(prices)
-                    clusters = [[sorted_p[0]]]
-                    for p in sorted_p[1:]:
-                        if (p - clusters[-1][0]) / clusters[-1][0] < threshold:
-                            clusters[-1].append(p)
+                    sorted_pts = sorted(points, key=lambda x: x[0])
+                    clusters = [[sorted_pts[0]]]
+                    for pt in sorted_pts[1:]:
+                        if (pt[0] - clusters[-1][0][0]) / clusters[-1][0][0] < threshold:
+                            clusters[-1].append(pt)
                         else:
-                            clusters.append([p])
-                    return [(float(np.mean(c)), len(c)) for c in clusters]
+                            clusters.append([pt])
+                    results = []
+                    for c in clusters:
+                        prices = [x[0] for x in c]
+                        dates  = [x[1] for x in c]
+                        center = float(np.mean(prices))
+                        last_touch = max(dates)
+                        # Time-decay score: sum of exp(-age_days/365) per touch
+                        score = sum(
+                            np.exp(-(today_ts - d).days / 365.0) for d in dates
+                        )
+                        results.append((center, len(c), last_touch, score))
+                    return results
 
-                levels = sorted(_cluster(pivot_prices), key=lambda x: x[1], reverse=True)[:10]
+                levels_raw = sorted(
+                    _cluster_with_dates(pivot_points),
+                    key=lambda x: x[3], reverse=True
+                )[:10]
 
-                for level_price, touch_count in levels:
-                    zone_half = level_price * 0.008  # zone = ±0.8% of level price
+                for level_price, touch_count, last_touch, score in levels_raw:
+                    zone_half = level_price * 0.008
                     is_support = level_price < current_price
-                    fill  = 'rgba(16,185,129,0.12)' if is_support else 'rgba(244,63,94,0.12)'
-                    border = '#10b981' if is_support else '#f43f5e'
-                    label = f"{'S' if is_support else 'R'}  {level_price:,.0f}  ({touch_count}✕)"
+
+                    # Broken-level detection: 3 consecutive closes past the zone
+                    zone_lo = level_price - zone_half
+                    zone_hi = level_price + zone_half
+                    recent_closes = close_s.iloc[-10:]
+                    if is_support:
+                        broken = (recent_closes < zone_lo).rolling(3).min().iloc[-1] == 1
+                    else:
+                        broken = (recent_closes > zone_hi).rolling(3).min().iloc[-1] == 1
+
+                    if broken:
+                        fill   = 'rgba(86,101,126,0.08)'
+                        border = '#56657e'
+                        label  = f"{'S' if is_support else 'R'}  {level_price:,.0f}  ({touch_count}✕ broken)"
+                    else:
+                        fill   = 'rgba(16,185,129,0.12)' if is_support else 'rgba(244,63,94,0.12)'
+                        border = '#10b981' if is_support else '#f43f5e'
+                        label  = f"{'S' if is_support else 'R'}  {level_price:,.0f}  ({touch_count}✕)"
 
                     fig_ta.add_hrect(
-                        y0=level_price - zone_half, y1=level_price + zone_half,
-                        fillcolor=fill, line=dict(color=border, width=0.8),
+                        y0=zone_lo, y1=zone_hi,
+                        fillcolor=fill,
+                        line=dict(color=border, width=0.8, dash='dash' if broken else 'solid'),
                         opacity=1.0, layer='below',
                     )
                     fig_ta.add_annotation(
@@ -620,11 +662,11 @@ def render():
             # ── Drawing 2: Fibonacci Retracement ──────────────────────────
             # Algorithm:
             #   Find the period's overall swing high and swing low.
-            #   If the high came AFTER the low → uptrend: 0% = swing low,
-            #   100% = swing high, retracement levels go downward.
-            #   If the high came BEFORE the low → downtrend: 0% = swing high,
-            #   100% = swing low, retracement levels go upward.
-            #   Key levels: 23.6%, 38.2%, 50%, 61.8%, 78.6%.
+            #   If the high came AFTER the low → uptrend: levels retrace downward.
+            #   If the high came BEFORE the low → downtrend: levels retrace upward.
+            #   Lines are clipped to start at the earlier swing point date so they
+            #   don't extend back into price history before the swing was established.
+            #   Swing start/end markers and date+price annotations are added.
             if "Fibonacci Retracement" in drawings:
                 swing_high = float(ta_df[hi_col].max())
                 swing_low  = float(ta_df[lo_col].min())
@@ -633,6 +675,14 @@ def render():
                 high_idx = ta_df[hi_col].idxmax()
                 low_idx  = ta_df[lo_col].idxmin()
                 uptrend  = high_idx > low_idx  # high came after low
+
+                # Swing start = earlier extreme, end = later extreme
+                if uptrend:
+                    swing_start_date, swing_start_price = low_idx,  swing_low
+                    swing_end_date,   swing_end_price   = high_idx, swing_high
+                else:
+                    swing_start_date, swing_start_price = high_idx, swing_high
+                    swing_end_date,   swing_end_price   = low_idx,  swing_low
 
                 fib_levels = [
                     (0.000, '0.0%',   '#94a3b8'),
@@ -644,44 +694,61 @@ def render():
                     (1.000, '100.0%', '#94a3b8'),
                 ]
 
-                for ratio, label, color in fib_levels:
-                    if uptrend:
-                        # Retracement from high downward
-                        level_price = swing_high - ratio * swing_range
-                    else:
-                        # Retracement from low upward
-                        level_price = swing_low + ratio * swing_range
-
-                    fig_ta.add_hline(
-                        y=level_price,
+                for ratio, lbl, color in fib_levels:
+                    level_price = swing_high - ratio * swing_range if uptrend else swing_low + ratio * swing_range
+                    # Clip line to start at the swing start date
+                    fig_ta.add_shape(
+                        type='line',
+                        x0=swing_start_date, x1=ta_df.index[-1],
+                        y0=level_price, y1=level_price,
                         line=dict(color=color, width=1, dash='dot'),
-                        annotation_text=f"Fib {label}  {level_price:,.0f}",
-                        annotation_position="top left",
-                        annotation_font=dict(size=10, color=color),
+                        xref='x', yref='y',
+                    )
+                    fig_ta.add_annotation(
+                        x=swing_start_date, y=level_price,
+                        text=f"Fib {lbl}  {level_price:,.0f}",
+                        xanchor='left', yanchor='bottom',
+                        font=dict(size=10, color=color),
+                        showarrow=False, xref='x', yref='y',
+                        bgcolor='rgba(15,21,32,0.6)',
                     )
 
-            # ── Drawing 3: Weekly Pivot Points ────────────────────────────
+                # Swing start/end markers with date + price labels
+                for date, price_pt, marker_label in [
+                    (swing_start_date, swing_start_price, f"Swing start\n{swing_start_date.strftime('%d %b %Y')}  {swing_start_price:,.0f}"),
+                    (swing_end_date,   swing_end_price,   f"Swing end\n{swing_end_date.strftime('%d %b %Y')}  {swing_end_price:,.0f}"),
+                ]:
+                    fig_ta.add_trace(go.Scatter(
+                        x=[date], y=[price_pt],
+                        mode='markers+text',
+                        marker=dict(color='#e8edf5', size=8, symbol='diamond'),
+                        text=[marker_label],
+                        textposition='top center' if price_pt == swing_high else 'bottom center',
+                        textfont=dict(size=9, color='#8899b4'),
+                        showlegend=False,
+                        hoverinfo='skip',
+                    ))
+
+            # ── Drawing 3: Monthly Pivot Points ───────────────────────────
             # Algorithm:
-            #   Resample data to weekly bars. Take the last COMPLETE week
-            #   (second-to-last row after resampling, since the last row is
-            #   the current in-progress week).
-            #   PP  = (High + Low + Close) / 3  — pivot point
-            #   R1  = 2×PP − Low               — first resistance
-            #   R2  = PP + (High − Low)         — second resistance
-            #   R3  = High + 2×(PP − Low)       — third resistance
-            #   S1  = 2×PP − High               — first support
-            #   S2  = PP − (High − Low)         — second support
-            #   S3  = Low − 2×(High − PP)       — third support
-            if "Weekly Pivots" in drawings:
-                weekly = df[[hi_col, lo_col, ta_close]].dropna().resample('W').agg({
+            #   Resample data to monthly bars (MS = month start). Take the last
+            #   COMPLETE month (second-to-last row) to avoid in-progress data.
+            #   Monthly pivots are more relevant for BTC's slow-moving timeframe
+            #   than weekly pivots which flip too quickly.
+            #   PP  = (High + Low + Close) / 3
+            #   R1/R2/R3 = standard floor pivot resistance levels
+            #   S1/S2/S3 = standard floor pivot support levels
+            if "Monthly Pivots" in drawings:
+                monthly = df[[hi_col, lo_col, ta_close]].dropna().resample('MS').agg({
                     hi_col:   'max',
                     lo_col:   'min',
                     ta_close: 'last',
                 }).dropna()
 
-                if len(weekly) >= 2:
-                    pw = weekly.iloc[-2]  # last complete week
-                    H, L, C = float(pw[hi_col]), float(pw[lo_col]), float(pw[ta_close])
+                if len(monthly) >= 2:
+                    pm = monthly.iloc[-2]  # last complete month
+                    month_label = monthly.index[-2].strftime('%b %Y')
+                    H, L, C = float(pm[hi_col]), float(pm[lo_col]), float(pm[ta_close])
 
                     PP = (H + L + C) / 3
                     R1 = 2 * PP - L
@@ -704,7 +771,7 @@ def render():
                         fig_ta.add_hline(
                             y=level_price,
                             line=dict(color=color, width=width, dash=dash),
-                            annotation_text=f"{label}  {level_price:,.0f}",
+                            annotation_text=f"{label} ({month_label})  {level_price:,.0f}",
                             annotation_position="bottom right",
                             annotation_font=dict(size=10, color=color),
                         )
@@ -766,21 +833,22 @@ def render():
                     "Support & Resistance": (
                         "**Support & Resistance zones**",
                         "Green = support (price is above), Red = resistance (price is below). "
-                        "Each zone is formed by clustering pivot highs/lows within 1.5% of each other. "
-                        "The number in parentheses is the touch count — more touches = stronger level.",
+                        "Only pivots touched within the last 12 months are included. "
+                        "Zones are scored by recency-weighted touch count (recent touches count more). "
+                        "Dashed grey zones = broken (price closed through them 3× recently).",
                     ),
                     "Fibonacci Retracement": (
                         "**Fibonacci Retracement**",
-                        "Drawn between the period's major swing high and low. "
+                        "Drawn from the period's swing start to swing end (diamond markers). "
+                        "Lines are clipped to start at the earlier swing point. "
                         "Key levels: 23.6%, 38.2%, 50%, 61.8%, 78.6%. "
-                        "Price tends to find support or resistance at these ratios during a pullback. "
-                        "Direction (up/down) is inferred from which extreme came last.",
+                        "Direction (uptrend/downtrend) is inferred from which extreme came last.",
                     ),
-                    "Weekly Pivots": (
-                        "**Weekly Pivot Points**",
-                        "Calculated from last week's High, Low, Close: PP = (H+L+C)÷3. "
+                    "Monthly Pivots": (
+                        "**Monthly Pivot Points**",
+                        "Calculated from last month's High, Low, Close: PP = (H+L+C)÷3. "
                         "R1/R2/R3 are resistance levels above PP; S1/S2/S3 are support levels below. "
-                        "Floor traders have used these as intraday reference levels for decades.",
+                        "Monthly timeframe is more meaningful for BTC than weekly pivots.",
                     ),
                     "ATH & Cycle Levels": (
                         "**ATH & Cycle Levels**",
