@@ -81,10 +81,16 @@ def predict_current() -> dict:
 
     prediction_date = latest.index[0]
 
-    # Load BTC price from master_df
+    # Load BTC price from master_df — use asof() in case date falls on a weekend/gap
     price_df = pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
                            usecols=['date', 'Close_BTC'])
-    btc_price = price_df.loc[prediction_date, 'Close_BTC']
+    btc_price = (
+        price_df.loc[prediction_date, 'Close_BTC']
+        if prediction_date in price_df.index
+        else price_df['Close_BTC'].asof(prediction_date)
+    )
+    if pd.isna(btc_price):
+        return {'error': f'BTC price not available for {prediction_date}. master_df may have a gap.'}
 
     return {
         'prediction_date': prediction_date.strftime('%Y-%m-%d'),
@@ -144,8 +150,12 @@ def log_prediction(prediction: dict):
 
 def update_outcomes():
     """
-    Check past predictions where target_date has passed,
-    fill in actual returns from master_df.
+    Check past predictions where target_date has passed and fill in actual returns.
+
+    Also backfills btc_price_at_prediction from master_df when it was missing
+    (e.g. logged during a master_df NaN gap). Rows are re-processed whenever
+    either btc_price_at_prediction or actual_return is missing so that
+    previously-corrupted rows get corrected automatically.
     """
     log = load_trade_log()
     if log.empty:
@@ -156,25 +166,47 @@ def update_outcomes():
 
     updated = False
     for idx, row in log.iterrows():
-        if pd.notna(row['actual_return']):
+        # Skip only when fully resolved — both entry price and outcome are valid
+        if pd.notna(row['actual_return']) and pd.notna(row['btc_price_at_prediction']):
             continue
 
+        pred_date   = pd.Timestamp(row['prediction_date'])
         target_date = pd.Timestamp(row['target_date'])
-        pred_date = pd.Timestamp(row['prediction_date'])
 
-        # Check if we have data for the target date (or closest trading day)
-        available = price_df.index[price_df.index >= target_date]
-        if len(available) == 0:
+        # ── Backfill missing entry price from master_df ──────────────────
+        entry_price = row['btc_price_at_prediction']
+        if pd.isna(entry_price):
+            if pred_date in price_df.index:
+                entry_price = price_df.loc[pred_date, 'Close_BTC']
+            else:
+                entry_price = price_df['Close_BTC'].asof(pred_date)
+            if pd.notna(entry_price):
+                log.at[idx, 'btc_price_at_prediction'] = float(entry_price)
+                updated = True
+
+        # ── Skip if outcome not yet available ────────────────────────────
+        if pd.notna(row['actual_return']):
+            continue  # entry price was just backfilled; outcome already correct
+
+        # ── Guard: can't compute return without a valid entry price ──────
+        if pd.isna(entry_price) or float(entry_price) == 0:
             continue
 
-        actual_date = available[0]
-        actual_price = price_df.loc[actual_date, 'Close_BTC']
-        pred_price = row['btc_price_at_prediction']
-        actual_return = (actual_price / pred_price) - 1
+        # Use actual_price already in the log if present; otherwise look up master_df
+        existing_actual = row.get('actual_price')
+        if pd.notna(existing_actual) and float(existing_actual) > 0:
+            actual_price = float(existing_actual)
+        else:
+            available = price_df.index[price_df.index >= target_date]
+            if len(available) == 0:
+                continue  # target date not yet in master_df — still pending
+            actual_price = float(price_df.loc[available[0], 'Close_BTC'])
+            log.at[idx, 'actual_price'] = actual_price
+            updated = True
 
+        actual_return = (actual_price / float(entry_price)) - 1
         log.at[idx, 'actual_return'] = float(actual_return)
-        log.at[idx, 'actual_price'] = float(actual_price)
-        log.at[idx, 'correct'] = float((actual_return > 0) == (row['predicted_return'] > 0))
+        log.at[idx, 'correct']       = float((actual_return > 0) == (row['predicted_return'] > 0))
         updated = True
 
     if updated:
