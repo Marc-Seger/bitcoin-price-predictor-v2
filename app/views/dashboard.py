@@ -490,7 +490,7 @@ def render():
                     x=perf_data.index, y=perf_data[a],
                     name=a, line=dict(color=ASSET_COLORS.get(a, '#e8edf5'), width=2),
                 ))
-            fig_perf.update_layout(height=350, yaxis_title="% Change", legend=dict(orientation='h', y=-0.12, yanchor='top', font=dict(size=10)), **DARK_LAYOUT)
+            fig_perf.update_layout(height=350, yaxis_title="% Change", **{**DARK_LAYOUT, 'legend': dict(orientation='h', y=-0.12, yanchor='top', font=dict(size=10))})
             st.plotly_chart(fig_perf, use_container_width=True)
 
         # ── Period return table ───────────────────────────────────────────
@@ -557,9 +557,9 @@ def render():
                 ))
             fig_vol.update_layout(
                 height=260, yaxis_title="Annualised Vol %",
-                legend=dict(orientation='h', y=-0.15, yanchor='top', font=dict(size=10)),
-                margin=dict(l=50, r=20, t=20, b=50),
-                **DARK_LAYOUT
+                **{**DARK_LAYOUT,
+                   'legend': dict(orientation='h', y=-0.15, yanchor='top', font=dict(size=10)),
+                   'margin': dict(l=50, r=20, t=20, b=50)}
             )
             st.plotly_chart(fig_vol, use_container_width=True)
 
@@ -583,9 +583,9 @@ def render():
             fig_dd.update_layout(
                 height=280, yaxis_title="Drawdown %",
                 yaxis_range=[dd_min - 5, 0],
-                legend=dict(orientation='h', y=-0.15, yanchor='top', font=dict(size=10)),
-                margin=dict(l=50, r=20, t=20, b=50),
-                **DARK_LAYOUT
+                **{**DARK_LAYOUT,
+                   'legend': dict(orientation='h', y=-0.15, yanchor='top', font=dict(size=10)),
+                   'margin': dict(l=50, r=20, t=20, b=50)}
             )
             st.plotly_chart(fig_dd, use_container_width=True)
 
