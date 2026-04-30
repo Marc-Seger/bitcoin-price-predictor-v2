@@ -465,8 +465,8 @@ def render():
     with tab_map["Cross-Asset"]:
         st.markdown("### Cross-Asset Comparison")
 
-        timeframe_cross = st.selectbox("Period", ["3M", "6M", "1Y", "2Y", "All"], index=2, key="cross_tf")
-        days_cross = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730, 'All': len(df)}
+        timeframe_cross = st.selectbox("Period", ["3M", "6M", "1Y", "2Y", "All history"], index=2, key="cross_tf")
+        days_cross = {'3M': 90, '6M': 180, '1Y': 365, '2Y': 730, 'All history': len(df)}
         cross_df = df.tail(days_cross[timeframe_cross])
 
         # DXY excluded here — it's a model input / index, not an investable asset.
