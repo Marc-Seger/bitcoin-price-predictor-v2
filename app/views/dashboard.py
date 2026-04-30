@@ -497,7 +497,7 @@ def render():
         st.markdown("**Period Returns (%)**")
         close_cols = {a: f'Close_{a}' for a in CROSS_ASSETS if f'Close_{a}' in cross_df.columns}
         if close_cols:
-            periods = {'1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365}
+            periods = {'1W': 7, '1M': 30, '3M': 90, '6M': 180, '1Y': 365, '3Y': 1095, '5Y': 1825, '10Y': 3650}
             rows = []
             for a, cc in close_cols.items():
                 series = df[cc].dropna()
@@ -541,48 +541,6 @@ def render():
             )
             st.markdown("<div style='margin-bottom:24px'></div>", unsafe_allow_html=True)
 
-        # ── Rolling 90-day correlation with BTC ───────────────────────────
-        st.markdown("**Rolling 90-Day Correlation with BTC**")
-        if 'Close_BTC' in cross_df.columns and len(close_cols) > 1:
-            btc_ret = df['Close_BTC'].pct_change()
-            fig_corr = go.Figure()
-            for a, cc in close_cols.items():
-                if a == 'BTC':
-                    continue
-                asset_ret = df[cc].pct_change()
-                rolling_corr = asset_ret.rolling(90).corr(btc_ret).loc[cross_df.index]
-                fig_corr.add_trace(go.Scatter(
-                    x=rolling_corr.index, y=rolling_corr,
-                    name=a, line=dict(color=ASSET_COLORS.get(a, '#e8edf5'), width=1.5),
-                ))
-            fig_corr.add_hline(y=0, line_color='#56657e', line_dash='dash', opacity=0.5)
-            fig_corr.update_layout(
-                height=260, yaxis_title="Correlation", yaxis_range=[-1, 1], **DARK_LAYOUT
-            )
-            st.plotly_chart(fig_corr, use_container_width=True)
-
-        # ── Drawdown chart ────────────────────────────────────────────────
-        st.markdown("**Drawdown from Peak**")
-        if close_cols:
-            fig_dd = go.Figure()
-            for a, cc in close_cols.items():
-                series = cross_df[cc].dropna()
-                if series.empty:
-                    continue
-                rolling_max = series.cummax()
-                drawdown = (series / rolling_max - 1) * 100
-                fig_dd.add_trace(go.Scatter(
-                    x=drawdown.index, y=drawdown,
-                    name=a, line=dict(color=ASSET_COLORS.get(a, '#e8edf5'), width=1.5),
-                    fill='tozeroy',
-                    fillcolor=ASSET_COLORS.get(a, '#e8edf5').replace('#', 'rgba(').rstrip(')') if False else 'rgba(0,0,0,0)',
-                ))
-            fig_dd.add_hline(y=0, line_color='#56657e', opacity=0.3)
-            fig_dd.update_layout(
-                height=280, yaxis_title="Drawdown %", **DARK_LAYOUT
-            )
-            st.plotly_chart(fig_dd, use_container_width=True)
-
         # ── Volatility comparison ─────────────────────────────────────────
         st.markdown("**Rolling 30-Day Annualised Volatility**")
         if close_cols:
@@ -601,6 +559,26 @@ def render():
                 height=260, yaxis_title="Annualised Vol %", **DARK_LAYOUT
             )
             st.plotly_chart(fig_vol, use_container_width=True)
+
+        # ── Drawdown chart ────────────────────────────────────────────────
+        st.markdown("**Drawdown from Peak**")
+        if close_cols:
+            fig_dd = go.Figure()
+            for a, cc in close_cols.items():
+                series = cross_df[cc].dropna()
+                if series.empty:
+                    continue
+                rolling_max = series.cummax()
+                drawdown = (series / rolling_max - 1) * 100
+                fig_dd.add_trace(go.Scatter(
+                    x=drawdown.index, y=drawdown,
+                    name=a, line=dict(color=ASSET_COLORS.get(a, '#e8edf5'), width=1.5),
+                ))
+            fig_dd.add_hline(y=0, line_color='#56657e', opacity=0.3)
+            fig_dd.update_layout(
+                height=280, yaxis_title="Drawdown %", yaxis_range=[-100, 5], **DARK_LAYOUT
+            )
+            st.plotly_chart(fig_dd, use_container_width=True)
 
     # ══════════════════════════════════════════
     # TAB 5: Technical Analysis
