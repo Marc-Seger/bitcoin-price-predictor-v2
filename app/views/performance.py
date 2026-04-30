@@ -410,7 +410,8 @@ def render():
             conf_color = conf_colors.get(str(row['confidence']), '#56657e')
             src_dot = "<span style='font-size:8px;color:#3b82f6;vertical-align:super;'>●</span>" if row['source'] == 'live' else ""
 
-            target_str = row['target_date'].strftime('%Y-%m-%d') if pd.notna(row['target_date']) else '—'
+            _td = pd.to_datetime(row['target_date'], errors='coerce')
+            target_str = _td.strftime('%Y-%m-%d') if pd.notna(_td) else '—'
 
             body += (
                 f"<tr style='border-top:1px solid #1e2940;'>"
