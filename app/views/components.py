@@ -36,8 +36,8 @@ DARK_LAYOUT = dict(
     font=dict(family="JetBrains Mono, monospace", color=TEXT_COLOR, size=11),
     xaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
     yaxis=dict(gridcolor=GRID_COLOR, zerolinecolor=GRID_COLOR),
-    margin=dict(l=50, r=20, t=20, b=50),
-    legend=dict(orientation='h', y=-0.12, yanchor='top', font=dict(size=10)),
+    margin=dict(l=50, r=20, t=20, b=30),
+    legend=dict(orientation='h', y=1.02, font=dict(size=10)),
 )
 
 
