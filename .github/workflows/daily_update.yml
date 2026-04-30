@@ -94,6 +94,8 @@ jobs:
           python scripts/train_production.py
 
       - name: Make prediction and log it
+        id: predict
+        continue-on-error: true
         run: |
           python -c "
           import sys, os
@@ -108,8 +110,48 @@ jobs:
               print(f'Prediction logged: {prediction[\"direction\"]} ({prediction[\"predicted_return\"]:+.2%})')
               print(f'BTC: \${prediction[\"btc_price\"]:,.0f} -> \${prediction[\"predicted_price\"]:,.0f} (7d)')
           else:
-              print(f'Error: {prediction[\"error\"]}')
-          "
+              print(f'Prediction error: {prediction[\"error\"]}', file=sys.stderr)
+              sys.exit(1)
+          " 2>&1 | tee /tmp/predict_output.txt
+          exit ${PIPESTATUS[0]}
+
+      - name: Open prediction-failure issue if prediction failed
+        if: steps.predict.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="[Prediction] Daily prediction failed — $(date -u +%Y-%m-%d)"
+
+          BODY=$(printf '%s\n' \
+            '## Prediction Failure Alert' \
+            '' \
+            "**Date**: $(date -u +%Y-%m-%d)" \
+            '' \
+            'The daily prediction step failed — no new prediction was logged.' \
+            '' \
+            '### Output' \
+            '```' \
+            "$(cat /tmp/predict_output.txt)" \
+            '```' \
+            '' \
+            '**Common causes**: missing BTC price in master_df (run `update_data.py`), or no trained model.' \
+            '' \
+            '---' \
+            '_Opened automatically by the Daily Data Update & Prediction workflow._')
+
+          EXISTING=$(gh issue list --label "prediction-failure" --state open --json number --jq length)
+          if [ "$EXISTING" -eq "0" ]; then
+            gh issue create \
+              --title "$TITLE" \
+              --body "$BODY" \
+              --label "prediction-failure" || \
+            gh issue create \
+              --title "$TITLE" \
+              --body "$BODY"
+            echo "Prediction failure issue created."
+          else
+            echo "Open prediction-failure issue already exists — skipping duplicate."
+          fi
 
       - name: Upload updated master_df to release
         env:
