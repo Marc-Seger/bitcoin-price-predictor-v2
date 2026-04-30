@@ -13,6 +13,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'model'))
 from predict import predict_current, check_drift
 from components import styled_metric
+from performance import _build_prediction_log
 
 
 def render():
@@ -109,10 +110,94 @@ def render():
         "Visit the Strategy Lab to see historical backtest results."
     )
 
-    # Drift banner at the bottom so it doesn't dominate the page
+    # Drift banner
     if drift['status'] == 'WARNING':
         st.error(f"Model drift detected: {drift['message']}")
     elif drift['status'] == 'OK':
         st.success(drift['message'])
     else:
         st.info(drift['message'])
+
+    # ─── Prediction log ──────────────────────────────────────────────────────
+    st.markdown("---")
+    st.markdown("### Past Predictions")
+    st.caption(
+        "Every prediction the model has made — walk-forward historical (2019 → early 2026) "
+        "plus live production predictions (March 2026 → now). "
+        "<span style='color:#3b82f6;'>●</span> = live &nbsp; ⏳ = pending &nbsp; ✅ = correct &nbsp; ❌ = wrong",
+        unsafe_allow_html=True,
+    )
+
+    log = _build_prediction_log()
+    if log.empty:
+        st.warning("No prediction data found.")
+    else:
+        n_options = {'Last 30': 30, 'Last 90': 90, 'Last 180': 180, 'All': len(log)}
+        n_choice  = st.selectbox("Show", list(n_options.keys()), index=0, key='forecast_pred_log_n')
+        display_log = log.iloc[::-1].head(n_options[n_choice])
+
+        conf_colors = {'HIGH': '#10b981', 'MEDIUM': '#f59e0b', 'LOW': '#56657e'}
+
+        def _result_cell(row):
+            if row['pending']:
+                return "<td style='text-align:center;font-size:15px;'>⏳</td>"
+            return "<td style='text-align:center;font-size:15px;'>✅</td>" if row['correct'] else "<td style='text-align:center;font-size:15px;'>❌</td>"
+
+        def _pct_cell(val):
+            if pd.isna(val):
+                return "<td style='text-align:right;color:#56657e;'>—</td>"
+            clr = '#10b981' if val >= 0 else '#f43f5e'
+            return f"<td style='text-align:right;color:{clr};font-weight:600;'>{val*100:+.1f}%</td>"
+
+        def _price_cell(val):
+            if pd.isna(val):
+                return "<td style='text-align:right;color:#56657e;'>—</td>"
+            return f"<td style='text-align:right;color:#e8edf5;'>${val:,.0f}</td>"
+
+        def _delta_cell(row):
+            if row['pending'] or pd.isna(row['actual_return']) or pd.isna(row['predicted_return']):
+                return "<td style='text-align:right;color:#56657e;'>—</td>"
+            delta = (row['actual_return'] - row['predicted_return']) * 100
+            clr = '#10b981' if delta >= 0 else '#f43f5e'
+            return f"<td style='text-align:right;color:{clr};'>{delta:+.1f}%</td>"
+
+        headers = ['Date', 'Target d+7', 'Direction', 'Predicted', 'Confidence',
+                   'BTC at Pred.', 'BTC at d+7', 'Actual', 'Delta', 'Result']
+        th = "".join(
+            f"<th style='text-align:{'center' if h in ('Direction','Confidence','Result') else 'right' if h not in ('Date','Target d+7') else 'left'}"
+            f";color:#56657e;padding:6px 10px;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;'>{h}</th>"
+            for h in headers
+        )
+
+        body = ""
+        for pred_date, row in display_log.iterrows():
+            dir_color  = '#10b981' if row['direction'] == 'UP' else '#f43f5e'
+            dir_arrow  = '↑' if row['direction'] == 'UP' else '↓'
+            conf_color = conf_colors.get(str(row['confidence']), '#56657e')
+            src_dot    = "<span style='font-size:8px;color:#3b82f6;vertical-align:super;'>●</span>" if row['source'] == 'live' else ""
+            _td        = pd.to_datetime(row['target_date'], errors='coerce')
+            target_str = _td.strftime('%Y-%m-%d') if pd.notna(_td) else '—'
+
+            body += (
+                f"<tr style='border-top:1px solid #1e2940;'>"
+                f"<td style='padding:6px 10px;color:#8899b4;white-space:nowrap;'>{pred_date.strftime('%Y-%m-%d')}{src_dot}</td>"
+                f"<td style='padding:6px 10px;color:#56657e;white-space:nowrap;'>{target_str}</td>"
+                f"<td style='text-align:center;color:{dir_color};font-weight:700;'>{dir_arrow} {row['direction']}</td>"
+                + _pct_cell(row['predicted_return'])
+                + f"<td style='text-align:center;color:{conf_color};font-weight:600;font-size:11px;'>{row['confidence']}</td>"
+                + _price_cell(row['btc_at_prediction'])
+                + _price_cell(row['btc_at_target'])
+                + _pct_cell(row['actual_return'])
+                + _delta_cell(row)
+                + _result_cell(row)
+                + "</tr>"
+            )
+
+        st.markdown(
+            f"<div style='overflow-x:auto;'>"
+            f"<table style='width:100%;border-collapse:collapse;background:#171f30;"
+            f"border-radius:8px;font-family:JetBrains Mono,monospace;font-size:12px;'>"
+            f"<thead style='background:#0f1520;'><tr>{th}</tr></thead>"
+            f"<tbody>{body}</tbody></table></div>",
+            unsafe_allow_html=True,
+        )
