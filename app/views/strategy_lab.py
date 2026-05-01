@@ -19,116 +19,117 @@ from components import CARD_COLORS, DARK_LAYOUT, styled_metric
 
 PRESETS = {
     'Conservative': {
-        'strategy': 'All Signals', 'confidence_filter': 'All',
+        'min_magnitude': 0.0,
+        'rsi_enabled': False, 'rsi_max': 70.0,
+        'trend_enabled': False, 'sma_period': 50,
+        'macd_enabled': False,
+        'volume_enabled': False,
         'stop_loss_pct': 5.0, 'take_profit_pct': 15.0,
         'leverage': 1.0, 'fees_pct': 0.2, 'slippage_pct': 0.1, 'funding_rate': 0.0,
+        'reentry': False,
     },
     'Moderate': {
-        'strategy': 'Large Move Signals', 'confidence_filter': 'HIGH',
+        'min_magnitude': 5.0,
+        'rsi_enabled': True, 'rsi_max': 70.0,
+        'trend_enabled': False, 'sma_period': 50,
+        'macd_enabled': False,
+        'volume_enabled': False,
         'stop_loss_pct': 8.0, 'take_profit_pct': 20.0,
         'leverage': 2.0, 'fees_pct': 0.2, 'slippage_pct': 0.1, 'funding_rate': 0.03,
+        'reentry': False,
     },
     'Aggressive': {
-        'strategy': 'All Signals', 'confidence_filter': 'HIGH',
+        'min_magnitude': 5.0,
+        'rsi_enabled': True, 'rsi_max': 70.0,
+        'trend_enabled': True, 'sma_period': 50,
+        'macd_enabled': True,
+        'volume_enabled': False,
         'stop_loss_pct': 10.0, 'take_profit_pct': 30.0,
         'leverage': 5.0, 'fees_pct': 0.2, 'slippage_pct': 0.1, 'funding_rate': 0.03,
+        'reentry': False,
     },
     'Custom': {
-        'strategy': 'All Signals', 'confidence_filter': 'All',
+        'min_magnitude': 0.0,
+        'rsi_enabled': False, 'rsi_max': 70.0,
+        'trend_enabled': False, 'sma_period': 50,
+        'macd_enabled': False,
+        'volume_enabled': False,
         'stop_loss_pct': 5.0, 'take_profit_pct': 15.0,
         'leverage': 1.0, 'fees_pct': 0.2, 'slippage_pct': 0.1, 'funding_rate': 0.0,
+        'reentry': False,
     },
 }
 
 PROFILE_DESCRIPTIONS = {
     'Conservative': (
-        'The **Conservative** profile uses the **"All Signals"** strategy: '
-        'enters a long whenever the model predicts any positive 7-day return.\n\n'
+        'Enters a long whenever the model predicts any positive 7-day return. '
+        'No extra filters — the purest test of the model\'s directional edge.\n\n'
         '- **Leverage:** 1× (no liquidation risk)\n'
         '- **Take profit:** 15%\n'
         '- **Stop loss:** 5%\n'
         '- **Slippage:** 0.1% applied on fills\n'
         '- **Funding fees:** N/A (spot position)\n\n'
-        'If TP/SL isn\'t triggered, the trade closes automatically at day 7 regardless of P&L.'
+        'If TP/SL isn\'t triggered, the trade closes automatically at day 7.'
     ),
     'Moderate': (
-        'The **Moderate** profile uses the **"Large Move Signals"** strategy: '
-        'only enters when the model predicts a return above 5%, filtered to HIGH confidence signals.\n\n'
+        'Enters when the model predicts a return above **5%** and RSI is below **70** '
+        '(avoids buying into overbought conditions).\n\n'
         '- **Leverage:** 2×\n'
         '- **Take profit:** 20%\n'
         '- **Stop loss:** 8%\n'
         '- **Slippage:** 0.1% applied on fills\n'
         '- **Funding fees:** 0.03%/day on the leveraged position\n\n'
-        'If TP/SL isn\'t triggered, the trade closes automatically at day 7 regardless of P&L.'
+        'If TP/SL isn\'t triggered, the trade closes automatically at day 7.'
     ),
     'Aggressive': (
-        'The **Aggressive** profile uses the **"All Signals"** strategy '
-        'filtered to HIGH confidence signals.\n\n'
-        '- **Leverage:** 5× (a 20% adverse move triggers full liquidation)\n'
+        'Enters when the model predicts >5%, RSI is below 70, price is above the 50-day SMA '
+        '(uptrend confirmed), and MACD histogram is positive (momentum aligns).\n\n'
+        '- **Leverage:** 5× (a 20% adverse move = full liquidation)\n'
         '- **Take profit:** 30%\n'
         '- **Stop loss:** 10%\n'
         '- **Slippage:** 0.1% applied on fills\n'
         '- **Funding fees:** 0.03%/day on the leveraged position\n\n'
-        'If TP/SL isn\'t triggered, the trade closes automatically at day 7. '
         'Full-history results are dominated by the 2019–2024 bull run — use a recent start date for a realistic picture.'
     ),
 }
 
-STRATEGY_DESCRIPTIONS = {
-    'All Signals': (
-        "The purest test of the model's directional edge. Goes long whenever the model predicts any "
-        "positive 7-day return, with no magnitude filter. Trades roughly once a week. "
-        "Best used at 1× to isolate whether the model's direction calls add value over buy & hold."
-    ),
-    'Large Move Signals': (
-        "Only enters when the predicted 7-day return exceeds 5%, targeting the model's most decisive calls. "
-        "Trades less frequently than All Signals. "
-        "Note: the 5% threshold reflects the predicted size of the move, not how statistically confident "
-        "the model is — a 6% prediction and a 20% prediction are treated equally here."
-    ),
-    'RSI-Filtered': (
-        "Enters when the model is bullish and BTC's RSI is below 70. "
-        "RSI above 70 signals an overbought market — entering there increases the risk of buying at a local top. "
-        "This filter reduces trade frequency but aims to improve entry quality by avoiding momentum extremes."
-    ),
-    'Trend Confirmed': (
-        "Enters when the model is bullish and BTC is trading above its 50-day simple moving average. "
-        "The 50 SMA acts as a regime filter: above it signals an uptrend, below it suggests a correction "
-        "or bear market. Avoids counter-trend longs at the cost of missing early recovery trades."
-    ),
-}
 
-_SS_KEYS = ['strat_strategy', 'strat_confidence', 'strat_sl', 'strat_tp',
-            'strat_leverage', 'strat_fees', 'strat_slippage', 'strat_funding']
+def _get_confidence(predicted_return: float) -> str:
+    abs_pred = abs(predicted_return)
+    if abs_pred > 0.05:
+        return 'HIGH'
+    elif abs_pred > 0.02:
+        return 'MEDIUM'
+    return 'LOW'
 
 
 def _init_session_state():
     if 'strat_leverage' not in st.session_state:
-        p = PRESETS['Conservative']
-        st.session_state['strat_strategy']   = p['strategy']
-        st.session_state['strat_confidence'] = p['confidence_filter']
-        st.session_state['strat_sl']         = p['stop_loss_pct']
-        st.session_state['strat_tp']         = p['take_profit_pct']
-        st.session_state['strat_leverage']   = p['leverage']
-        st.session_state['strat_fees']       = p['fees_pct']
-        st.session_state['strat_slippage']   = p['slippage_pct']
-        st.session_state['strat_funding']    = p['funding_rate']
+        _push_preset(PRESETS['Conservative'])
         st.session_state['_strat_last_preset'] = 'Conservative'
 
 
+def _push_preset(p: dict):
+    st.session_state['strat_min_magnitude']  = p['min_magnitude']
+    st.session_state['strat_rsi_enabled']    = p['rsi_enabled']
+    st.session_state['strat_rsi_max']        = p['rsi_max']
+    st.session_state['strat_trend_enabled']  = p['trend_enabled']
+    st.session_state['strat_sma_period']     = p['sma_period']
+    st.session_state['strat_macd_enabled']   = p['macd_enabled']
+    st.session_state['strat_volume_enabled'] = p['volume_enabled']
+    st.session_state['strat_sl']             = p['stop_loss_pct']
+    st.session_state['strat_tp']             = p['take_profit_pct']
+    st.session_state['strat_leverage']       = p['leverage']
+    st.session_state['strat_fees']           = p['fees_pct']
+    st.session_state['strat_slippage']       = p['slippage_pct']
+    st.session_state['strat_funding']        = p['funding_rate']
+    st.session_state['strat_reentry']        = p['reentry']
+
+
 def _sync_preset(preset: str):
-    """When preset changes to a non-Custom value, push its values into session state."""
     if st.session_state.get('_strat_last_preset') != preset:
         if preset != 'Custom':
-            p = PRESETS[preset]
-            st.session_state['strat_strategy']   = p['strategy']
-            st.session_state['strat_confidence'] = p['confidence_filter']
-            st.session_state['strat_sl']         = p['stop_loss_pct']
-            st.session_state['strat_tp']         = p['take_profit_pct']
-            st.session_state['strat_leverage']   = p['leverage']
-            st.session_state['strat_fees']       = p['fees_pct']
-            st.session_state['strat_slippage']   = p['slippage_pct']
-            st.session_state['strat_funding']    = p['funding_rate']
+            _push_preset(PRESETS[preset])
         st.session_state['_strat_last_preset'] = preset
 
 
@@ -145,157 +146,201 @@ def load_predictions():
 
 
 @st.cache_data(ttl=23 * 3600)
-def load_rsi_sma():
-    return pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
-                       usecols=['date', 'RSI_Close_BTC', 'SMA_50_Close_BTC', 'Close_BTC'],
-                       low_memory=False)
+def load_filter_data():
+    wanted = ['date', 'Close_BTC', 'RSI_Close_BTC', 'SMA_50_Close_BTC',
+              'SMA_200_Close_BTC', 'MACD_Histogram_D_BTC', 'Volume_Percentile_BTC']
+    try:
+        df = pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
+                         usecols=wanted, low_memory=False)
+    except ValueError:
+        # SMA_200_Close_BTC missing — load without it and compute
+        fallback = [c for c in wanted if c != 'SMA_200_Close_BTC']
+        df = pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
+                         usecols=fallback, low_memory=False)
+        df['SMA_200_Close_BTC'] = df['Close_BTC'].rolling(200).mean()
+    return df
+
+
+def _eval_filters(pred_date, predicted_return: float, filter_df: pd.DataFrame,
+                  filters: dict) -> bool:
+    """Returns True only if all active filters pass."""
+    if predicted_return <= filters['min_magnitude'] / 100:
+        return False
+
+    if pred_date not in filter_df.index:
+        return True
+
+    row = filter_df.loc[pred_date]
+
+    if filters['rsi_enabled']:
+        rsi = row['RSI_Close_BTC']
+        if pd.notna(rsi) and rsi > filters['rsi_max']:
+            return False
+
+    if filters['trend_enabled']:
+        sma_col = 'SMA_50_Close_BTC' if filters['sma_period'] == 50 else 'SMA_200_Close_BTC'
+        sma   = row.get(sma_col, np.nan)
+        close = row['Close_BTC']
+        if pd.notna(sma) and pd.notna(close) and close <= sma:
+            return False
+
+    if filters['macd_enabled']:
+        macd = row['MACD_Histogram_D_BTC']
+        if pd.notna(macd) and macd <= 0:
+            return False
+
+    if filters['volume_enabled']:
+        vol_pct = row['Volume_Percentile_BTC']
+        if pd.notna(vol_pct) and vol_pct < 0.5:
+            return False
+
+    return True
+
+
+def _skip_record(pred_date, predicted_return: float, capital: float) -> dict:
+    return {
+        'date': pred_date, 'action': 'SKIP',
+        'entry_price': None, 'exit_price': None,
+        'return_pct': 0.0, 'leveraged_return_pct': 0.0, 'pnl': 0.0,
+        'capital_after': capital, 'exit_reason': 'No signal',
+        'confidence': _get_confidence(predicted_return),
+        'predicted_return': predicted_return,
+    }
+
+
+def _execute_trade_record(pred_date, predicted_return: float, prices: pd.DataFrame,
+                          leverage: float, stop_loss_pct: float, take_profit_pct: float,
+                          fees_pct: float, slippage_pct: float, funding_rate_daily: float,
+                          capital: float):
+    """Execute a single trade from pred_date. Returns (trade_dict, exit_date)."""
+    future_dates = prices.index[prices.index > pred_date][:7]
+    if len(future_dates) == 0:
+        return _skip_record(pred_date, predicted_return, capital), None
+
+    entry_price  = prices.loc[pred_date, 'Close_BTC']
+    actual_entry = entry_price * (1 + slippage_pct)
+
+    liq_trigger = actual_entry * (1 - 1 / leverage) if leverage > 1 else None
+    sl_trigger  = actual_entry * (1 - stop_loss_pct / 100) if stop_loss_pct > 0 else None
+    tp_trigger  = actual_entry * (1 + take_profit_pct / 100) if take_profit_pct > 0 else None
+
+    actual_exit = actual_entry
+    exit_date   = future_dates[-1]
+    exit_reason = 'End of window'
+    liquidated  = False
+
+    for day in future_dates:
+        if day not in prices.index:
+            continue
+        day_high  = prices.loc[day, 'High_BTC']
+        day_low   = prices.loc[day, 'Low_BTC']
+        day_close = prices.loc[day, 'Close_BTC']
+
+        if liq_trigger and day_low <= liq_trigger:
+            actual_exit = liq_trigger * (1 - slippage_pct)
+            exit_date   = day
+            exit_reason = f'LIQUIDATED at ${liq_trigger:,.0f}'
+            liquidated  = True
+            break
+        if sl_trigger and day_low <= sl_trigger:
+            actual_exit = sl_trigger * (1 - slippage_pct)
+            exit_date   = day
+            exit_reason = f'Stop loss at ${sl_trigger:,.0f}'
+            break
+        if tp_trigger and day_high >= tp_trigger:
+            actual_exit = tp_trigger * (1 - slippage_pct)
+            exit_date   = day
+            exit_reason = f'Take profit at ${tp_trigger:,.0f}'
+            break
+        actual_exit = day_close * (1 - slippage_pct)
+        exit_date   = day
+
+    raw_return = (actual_exit / actual_entry) - 1 - fees_pct
+    leveraged_return = raw_return * leverage
+
+    if leverage > 1 and funding_rate_daily > 0:
+        days_held = max((exit_date - pred_date).days, 1)
+        leveraged_return -= leverage * funding_rate_daily * days_held
+
+    if liquidated:
+        pnl         = -capital
+        new_capital = 0.0
+    else:
+        pnl         = capital * leveraged_return
+        new_capital = capital + pnl
+
+    return {
+        'date': pred_date, 'action': 'LONG',
+        'exit_date': exit_date,
+        'entry_price': actual_entry, 'exit_price': actual_exit,
+        'return_pct': raw_return * 100,
+        'leveraged_return_pct': leveraged_return * 100,
+        'pnl': pnl, 'capital_after': new_capital,
+        'exit_reason': exit_reason,
+        'confidence': _get_confidence(predicted_return),
+        'predicted_return': predicted_return,
+    }, exit_date
 
 
 def simulate_strategy(preds: pd.DataFrame, prices: pd.DataFrame,
-                      strategy: str, leverage: float,
-                      stop_loss_pct: float, take_profit_pct: float,
-                      confidence_filter: str, fees_pct: float = 0.002,
-                      start_date=None, slippage_pct: float = 0.001,
-                      funding_rate_daily: float = 0.0) -> pd.DataFrame:
-    trades = []
-    initial_capital = 10000.0
-    capital = initial_capital
-
-    filter_df = load_rsi_sma()
-    all_pred_dates = preds.index[::7]
+                      filter_df: pd.DataFrame, filters: dict,
+                      leverage: float, stop_loss_pct: float, take_profit_pct: float,
+                      fees_pct: float, slippage_pct: float, funding_rate_daily: float,
+                      start_date, reentry: bool) -> pd.DataFrame:
+    trades  = []
+    capital = 10000.0
 
     if start_date is not None:
-        pred_dates = all_pred_dates[all_pred_dates >= pd.Timestamp(start_date)]
+        valid_preds = preds.index[preds.index >= pd.Timestamp(start_date)]
     else:
-        pred_dates = all_pred_dates
+        valid_preds = preds.index
 
-    for pred_date in pred_dates:
+    if len(valid_preds) == 0:
+        return pd.DataFrame()
+
+    window_dates = valid_preds[::7]
+
+    for pred_date in window_dates:
         if capital <= 0:
             break
 
         predicted_return = preds.loc[pred_date, 'predicted']
-        abs_pred = abs(predicted_return)
+        take_trade = _eval_filters(pred_date, predicted_return, filter_df, filters)
 
-        if abs_pred > 0.05:
-            confidence = 'HIGH'
-        elif abs_pred > 0.02:
-            confidence = 'MEDIUM'
-        else:
-            confidence = 'LOW'
-
-        take_trade = False
-
-        if strategy == 'All Signals':
-            take_trade = predicted_return > 0
-
-        elif strategy == 'Large Move Signals':
-            take_trade = predicted_return > 0 and confidence == 'HIGH'
-
-        elif strategy == 'RSI-Filtered':
-            if pred_date in filter_df.index:
-                rsi_val = filter_df.loc[pred_date, 'RSI_Close_BTC']
-                take_trade = predicted_return > 0 and (pd.isna(rsi_val) or rsi_val < 70)
-            else:
-                take_trade = predicted_return > 0
-
-        elif strategy == 'Trend Confirmed':
-            if pred_date in filter_df.index:
-                close_val = filter_df.loc[pred_date, 'Close_BTC']
-                sma_val = filter_df.loc[pred_date, 'SMA_50_Close_BTC']
-                above_sma = close_val > sma_val if pd.notna(sma_val) else True
-                take_trade = predicted_return > 0 and above_sma
-            else:
-                take_trade = predicted_return > 0
-
-        if confidence_filter != 'All' and confidence != confidence_filter:
-            take_trade = False
-
-        if not take_trade:
-            trades.append({
-                'date': pred_date, 'action': 'SKIP',
-                'entry_price': None, 'exit_price': None,
-                'return_pct': 0, 'leveraged_return_pct': 0, 'pnl': 0,
-                'capital_after': capital, 'exit_reason': 'No signal',
-                'confidence': confidence, 'predicted_return': predicted_return,
-            })
+        if not take_trade or pred_date not in prices.index:
+            trades.append(_skip_record(pred_date, predicted_return, capital))
             continue
 
-        if pred_date not in prices.index:
-            continue
+        record, exit_date = _execute_trade_record(
+            pred_date, predicted_return, prices,
+            leverage, stop_loss_pct, take_profit_pct,
+            fees_pct, slippage_pct, funding_rate_daily, capital,
+        )
+        capital = record['capital_after']
+        trades.append(record)
 
-        entry_price = prices.loc[pred_date, 'Close_BTC']
-        future_dates = prices.index[prices.index > pred_date][:7]
-        if len(future_dates) == 0:
-            continue
-
-        # Apply entry slippage — you pay slightly more to buy
-        actual_entry = entry_price * (1 + slippage_pct)
-
-        # Compute trigger levels from actual entry price
-        liq_trigger = actual_entry * (1 - 1 / leverage) if leverage > 1 else None
-        sl_trigger  = actual_entry * (1 - stop_loss_pct / 100) if stop_loss_pct > 0 else None
-        tp_trigger  = actual_entry * (1 + take_profit_pct / 100) if take_profit_pct > 0 else None
-
-        actual_exit = actual_entry
-        exit_date   = future_dates[-1]
-        exit_reason = 'End of window'
-        liquidated  = False
-
-        for day in future_dates:
-            if day not in prices.index:
-                continue
-
-            day_high  = prices.loc[day, 'High_BTC']
-            day_low   = prices.loc[day, 'Low_BTC']
-            day_close = prices.loc[day, 'Close_BTC']
-
-            if liq_trigger and day_low <= liq_trigger:
-                actual_exit = liq_trigger * (1 - slippage_pct)
-                exit_date   = day
-                exit_reason = f'LIQUIDATED at ${liq_trigger:,.0f}'
-                liquidated  = True
-                break
-
-            if sl_trigger and day_low <= sl_trigger:
-                actual_exit = sl_trigger * (1 - slippage_pct)
-                exit_date   = day
-                exit_reason = f'Stop loss at ${sl_trigger:,.0f}'
-                break
-
-            if tp_trigger and day_high >= tp_trigger:
-                actual_exit = tp_trigger * (1 - slippage_pct)
-                exit_date   = day
-                exit_reason = f'Take profit at ${tp_trigger:,.0f}'
-                break
-
-            actual_exit = day_close * (1 - slippage_pct)
-            exit_date   = day
-
-        raw_return = (actual_exit / actual_entry) - 1
-        raw_return -= fees_pct
-        leveraged_return = raw_return * leverage
-
-        # Funding fees on notional (perpetual futures cost for leveraged positions)
-        if leverage > 1 and funding_rate_daily > 0:
-            days_held = max((exit_date - pred_date).days, 1)
-            leveraged_return -= leverage * funding_rate_daily * days_held
-
-        if liquidated:
-            pnl = -capital
-            capital = 0
-        else:
-            pnl = capital * leveraged_return
-            capital += pnl
-
-        trades.append({
-            'date': pred_date, 'action': 'LONG',
-            'exit_date': exit_date,
-            'entry_price': actual_entry, 'exit_price': actual_exit,
-            'return_pct': raw_return * 100, 'leveraged_return_pct': leveraged_return * 100,
-            'pnl': pnl, 'capital_after': capital,
-            'exit_reason': exit_reason, 'confidence': confidence,
-            'predicted_return': predicted_return,
-        })
+        # Re-entry: if TP/SL hit before window end, try one more trade from exit_date
+        if reentry and exit_date is not None and capital > 0:
+            window_end = pred_date + pd.Timedelta(days=7)
+            if exit_date < window_end:
+                re_candidates = preds.index[
+                    (preds.index >= exit_date) & (preds.index < window_end)
+                ]
+                for reentry_date in re_candidates:
+                    if capital <= 0:
+                        break
+                    if reentry_date not in prices.index:
+                        continue
+                    re_predicted = preds.loc[reentry_date, 'predicted']
+                    if _eval_filters(reentry_date, re_predicted, filter_df, filters):
+                        re_record, _ = _execute_trade_record(
+                            reentry_date, re_predicted, prices,
+                            leverage, stop_loss_pct, take_profit_pct,
+                            fees_pct, slippage_pct, funding_rate_daily, capital,
+                        )
+                        capital = re_record['capital_after']
+                        trades.append(re_record)
+                        break  # one re-entry per window
 
     return pd.DataFrame(trades)
 
@@ -305,22 +350,18 @@ def render():
     st.caption("Backtest trading strategies using historical model predictions. No real money — educational only.")
 
     preds, prices = load_predictions()
-
     if preds.empty:
         st.error("No prediction results found. Run model evaluation first.")
         return
 
+    filter_df = load_filter_data()
     _init_session_state()
 
-    # ─── Top row: preset + start date ───────────────────────────────────────
-    col_preset, col_date, _ = st.columns([2, 2, 1])
+    # ─── Top row: preset + start date + re-entry ────────────────────────────
+    col_preset, col_date, col_reentry = st.columns([2, 2, 2])
 
     with col_preset:
-        preset = st.selectbox(
-            "Profile",
-            list(PRESETS.keys()),
-            key='strategy_preset',
-        )
+        preset = st.selectbox("Profile", list(PRESETS.keys()), key='strategy_preset')
 
     _sync_preset(preset)
 
@@ -332,94 +373,160 @@ def render():
             value=min_date,
             min_value=min_date,
             max_value=max_date,
-            help="Move this forward for a more realistic out-of-sample test. Earlier dates include the 2019–2021 bull run.",
+            help="Move forward for a more realistic out-of-sample test. Earlier dates include the 2019–2021 bull run.",
         )
 
-    # ─── Controls: preset values or custom sliders ──────────────────────────
+    with col_reentry:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        reentry = st.toggle(
+            "Re-enter on close",
+            value=st.session_state.get('strat_reentry', False),
+            help="When a trade closes early (TP/SL hit), immediately look for a new entry "
+                 "within the remaining window days — instead of waiting for the next 7-day window.",
+        )
+
+    # ─── Controls: custom filters or preset description ─────────────────────
     if preset == 'Custom':
         with st.expander("Customize", expanded=True):
-            st.markdown("**Strategy**")
-            c1, c2 = st.columns(2)
+            st.markdown("**Signal Filters** — a trade opens only when all active filters pass")
+
+            c1, c2 = st.columns([3, 2])
             with c1:
-                strategy = st.selectbox(
-                    "Strategy",
-                    ["All Signals", "Large Move Signals", "RSI-Filtered", "Trend Confirmed"],
-                    key='strat_strategy',
+                min_magnitude = st.slider(
+                    "Min predicted return (%)", 0.0, 15.0,
+                    key='strat_min_magnitude', step=0.5,
+                    help="Only enter when the model predicts at least this % return over 7 days. "
+                         "0 = any positive prediction.",
                 )
             with c2:
-                confidence_filter = st.selectbox(
-                    "Confidence Filter", ["All", "HIGH", "MEDIUM", "LOW"],
-                    key='strat_confidence',
-                    help="Only take trades matching this confidence level.",
-                )
+                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+                rsi_enabled = st.toggle("RSI filter", key='strat_rsi_enabled',
+                                        help="Skip trade if BTC RSI is above the threshold (overbought).")
 
-            st.markdown("**Risk Management**")
+            if rsi_enabled:
+                rsi_max = st.slider(
+                    "RSI max threshold", 50.0, 90.0, key='strat_rsi_max', step=1.0,
+                    help="Enter only when RSI is below this value.",
+                )
+            else:
+                rsi_max = st.session_state.get('strat_rsi_max', 70.0)
+
             c3, c4 = st.columns(2)
             with c3:
+                trend_enabled = st.toggle(
+                    "Trend filter (above SMA)", key='strat_trend_enabled',
+                    help="Only enter when BTC is trading above its moving average (uptrend regime).",
+                )
+                if trend_enabled:
+                    sma_period = st.selectbox(
+                        "SMA period", [50, 200], key='strat_sma_period',
+                    )
+                else:
+                    sma_period = st.session_state.get('strat_sma_period', 50)
+            with c4:
+                macd_enabled = st.toggle(
+                    "MACD filter (histogram > 0)", key='strat_macd_enabled',
+                    help="Only enter when the daily MACD histogram is positive — "
+                         "momentum is building in the bullish direction.",
+                )
+
+            volume_enabled = st.toggle(
+                "Volume filter (above 30-day average)", key='strat_volume_enabled',
+                help="Only enter on above-average volume days — avoids low-conviction moves.",
+            )
+
+            st.markdown("---")
+            st.markdown("**Risk Management**")
+            c5, c6 = st.columns(2)
+            with c5:
                 stop_loss_pct = st.slider(
                     "Stop Loss (%)", 0.0, 20.0, key='strat_sl', step=0.5,
                     help="0 = disabled. Closes position if price drops by this %.",
                 )
-            with c4:
+            with c6:
                 take_profit_pct = st.slider(
                     "Take Profit (%)", 0.0, 50.0, key='strat_tp', step=1.0,
                     help="0 = disabled. Closes position if price rises by this %.",
                 )
 
             st.markdown("**Execution**")
-            c5, c6 = st.columns(2)
-            with c5:
+            c7, c8 = st.columns(2)
+            with c7:
                 leverage = st.slider(
                     "Leverage", 1.0, 40.0, key='strat_leverage', step=0.5,
                     help="1x = no leverage (spot). Higher = more risk and reward.",
                 )
                 if leverage > 10:
                     st.warning(f"At {leverage}x, a {100/leverage:.1f}% drop = liquidation.")
-            with c6:
+            with c8:
                 fees_pct = st.slider(
                     "Trading Fees (%)", 0.0, 1.0, key='strat_fees', step=0.05,
                     help="Round-trip cost per trade (entry + exit). 0.2% is typical for spot crypto.",
                 ) / 100
 
-            c7, c8 = st.columns(2)
-            with c7:
+            c9, c10 = st.columns(2)
+            with c9:
                 slippage_pct = st.slider(
                     "Slippage (%)", 0.0, 0.5, key='strat_slippage', step=0.05,
-                    help="Market impact on fill price. Entry costs more, exits pay less. "
-                         "0.1% is typical for BTC on major exchanges.",
+                    help="Market impact on fill price. Entry costs more, exits pay less.",
                 ) / 100
-            with c8:
+            with c10:
                 funding_rate = st.slider(
                     "Funding Rate (%/day)", 0.0, 0.10, key='strat_funding', step=0.005,
                     help="Daily cost of holding a leveraged position (perpetual futures). "
-                         "0.03%/day = 0.01% per 8h, the standard Binance/Bybit rate. "
-                         "Only applies above 1x leverage.",
+                         "0.03%/day = standard Binance/Bybit rate. Only applies above 1x.",
                     format="%.3f",
                     disabled=(leverage == 1.0),
                 ) / 100
 
-        st.info(f"**{strategy}** — {STRATEGY_DESCRIPTIONS[strategy]}")
+        # Active filter summary
+        active = ["Bullish prediction"]
+        if min_magnitude > 0:
+            active.append(f"≥{min_magnitude:.1f}% predicted return")
+        if rsi_enabled:
+            active.append(f"RSI < {rsi_max:.0f}")
+        if trend_enabled:
+            active.append(f"Above {sma_period}-day SMA")
+        if macd_enabled:
+            active.append("MACD histogram > 0")
+        if volume_enabled:
+            active.append("Volume above average")
+        st.info("**Active filters:** " + " · ".join(active))
 
     else:
-        p             = PRESETS[preset]
-        strategy      = p['strategy']
-        confidence_filter = p['confidence_filter']
-        stop_loss_pct = p['stop_loss_pct']
+        p               = PRESETS[preset]
+        min_magnitude   = p['min_magnitude']
+        rsi_enabled     = p['rsi_enabled']
+        rsi_max         = p['rsi_max']
+        trend_enabled   = p['trend_enabled']
+        sma_period      = p['sma_period']
+        macd_enabled    = p['macd_enabled']
+        volume_enabled  = p['volume_enabled']
+        stop_loss_pct   = p['stop_loss_pct']
         take_profit_pct = p['take_profit_pct']
-        leverage      = p['leverage']
-        fees_pct      = p['fees_pct'] / 100
-        slippage_pct  = p['slippage_pct'] / 100
-        funding_rate  = p['funding_rate'] / 100
+        leverage        = p['leverage']
+        fees_pct        = p['fees_pct'] / 100
+        slippage_pct    = p['slippage_pct'] / 100
+        funding_rate    = p['funding_rate'] / 100
 
         st.info(PROFILE_DESCRIPTIONS[preset])
 
+    filters = {
+        'min_magnitude':  min_magnitude,
+        'rsi_enabled':    rsi_enabled,
+        'rsi_max':        rsi_max,
+        'trend_enabled':  trend_enabled,
+        'sma_period':     sma_period,
+        'macd_enabled':   macd_enabled,
+        'volume_enabled': volume_enabled,
+    }
+
     # ─── Run simulation ─────────────────────────────────────────────────────
     trades = simulate_strategy(
-        preds, prices, strategy, leverage,
-        stop_loss_pct, take_profit_pct,
-        confidence_filter, fees_pct, start_date,
-        slippage_pct=slippage_pct,
-        funding_rate_daily=funding_rate,
+        preds, prices, filter_df, filters,
+        leverage, stop_loss_pct, take_profit_pct,
+        fees_pct, slippage_pct, funding_rate,
+        start_date, reentry,
     )
 
     if trades.empty:
@@ -443,10 +550,13 @@ def render():
 
     equity_curve = trades['capital_after']
     peak    = equity_curve.expanding().max()
-    drawdown = ((equity_curve - peak) / peak * 100)
+    drawdown = (equity_curve - peak) / peak * 100
     max_dd  = drawdown.min()
 
-    liquidations = active_trades['exit_reason'].str.contains('LIQUIDATED').sum() if len(active_trades) > 0 else 0
+    liquidations = (
+        active_trades['exit_reason'].str.contains('LIQUIDATED').sum()
+        if len(active_trades) > 0 else 0
+    )
 
     cols = st.columns(5)
     with cols[0]:
@@ -468,12 +578,14 @@ def render():
     # ─── Tabs ───────────────────────────────────────────────────────────────
     tab_equity, tab_trades, tab_stats = st.tabs(["Equity Curve", "Trade Log", "Statistics"])
 
+    preset_label = preset if preset != 'Custom' else 'Custom filters'
+
     with tab_equity:
         fig = go.Figure()
 
         fig.add_trace(go.Scatter(
             x=trades['date'], y=trades['capital_after'],
-            name=f'{strategy} ({leverage}x)',
+            name=f'{preset_label} ({leverage:.0f}x)',
             line=dict(color='#3b82f6', width=2),
         ))
 
@@ -546,7 +658,7 @@ def render():
             display = pd.DataFrame(rows)
             st.dataframe(display.iloc[::-1], use_container_width=True, hide_index=True)
         else:
-            st.info("No trades taken with current strategy settings.")
+            st.info("No trades taken with current settings.")
 
     with tab_stats:
         if len(active_trades) > 0:
@@ -559,13 +671,13 @@ def render():
 
                 stats = {
                     'Total Trades': len(active_trades),
-                    'Winning':  len(wins),
-                    'Losing':   len(losses),
-                    'Win Rate': f"{len(wins)/len(active_trades):.0%}" if len(active_trades) > 0 else "—",
-                    'Avg Win':  f"{wins['leveraged_return_pct'].mean():+.2f}%" if len(wins) > 0 else "—",
-                    'Avg Loss': f"{losses['leveraged_return_pct'].mean():+.2f}%" if len(losses) > 0 else "—",
-                    'Best Trade':  f"{active_trades['leveraged_return_pct'].max():+.2f}%",
-                    'Worst Trade': f"{active_trades['leveraged_return_pct'].min():+.2f}%",
+                    'Winning':      len(wins),
+                    'Losing':       len(losses),
+                    'Win Rate':     f"{len(wins)/len(active_trades):.0%}",
+                    'Avg Win':      f"{wins['leveraged_return_pct'].mean():+.2f}%" if len(wins) > 0 else "—",
+                    'Avg Loss':     f"{losses['leveraged_return_pct'].mean():+.2f}%" if len(losses) > 0 else "—",
+                    'Best Trade':   f"{active_trades['leveraged_return_pct'].max():+.2f}%",
+                    'Worst Trade':  f"{active_trades['leveraged_return_pct'].min():+.2f}%",
                 }
                 st.dataframe(pd.DataFrame(stats.items(), columns=['Metric', 'Value']),
                              use_container_width=True, hide_index=True)
@@ -573,20 +685,22 @@ def render():
             with col_stats2:
                 st.markdown("**Risk Metrics**")
                 returns_series = active_trades['leveraged_return_pct'] / 100
-                sharpe = (returns_series.mean() / returns_series.std()) * np.sqrt(52) if returns_series.std() > 0 else 0
-
-                gross_profit = wins['pnl'].sum() if len(wins) > 0 else 0
-                gross_loss   = abs(losses['pnl'].sum()) if len(losses) > 0 else 1
+                sharpe = (
+                    (returns_series.mean() / returns_series.std()) * np.sqrt(52)
+                    if returns_series.std() > 0 else 0
+                )
+                gross_profit  = wins['pnl'].sum() if len(wins) > 0 else 0
+                gross_loss    = abs(losses['pnl'].sum()) if len(losses) > 0 else 1
                 profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
 
                 risk_stats = {
-                    'Sharpe Ratio':    f"{sharpe:.2f}",
-                    'Profit Factor':   f"{profit_factor:.2f}",
-                    'Max Drawdown':    f"{max_dd:.1f}%",
-                    'Liquidations':    liquidations,
-                    'Stop Losses Hit': len(sl_trades) if len(active_trades) > 0 else 0,
+                    'Sharpe Ratio':     f"{sharpe:.2f}",
+                    'Profit Factor':    f"{profit_factor:.2f}",
+                    'Max Drawdown':     f"{max_dd:.1f}%",
+                    'Liquidations':     liquidations,
+                    'Stop Losses Hit':  len(sl_trades) if len(active_trades) > 0 else 0,
                     'Take Profits Hit': len(tp_trades) if len(active_trades) > 0 else 0,
-                    'Trades Skipped':  len(skipped),
+                    'Trades Skipped':   len(skipped),
                 }
                 st.dataframe(pd.DataFrame(risk_stats.items(), columns=['Metric', 'Value']),
                              use_container_width=True, hide_index=True)
@@ -595,21 +709,20 @@ def render():
             fig_hist = go.Figure()
             fig_hist.add_trace(go.Histogram(
                 x=active_trades['leveraged_return_pct'],
-                nbinsx=30, marker_color='#3b82f6', opacity=0.7,
-                name='Trade Returns',
+                nbinsx=30, marker_color='#3b82f6', opacity=0.7, name='Trade Returns',
             ))
             fig_hist.add_vline(x=0, line_dash="dash", line_color="white", opacity=0.5)
             fig_hist.update_layout(
-                height=280, xaxis_title='Return (%)', yaxis_title='Count',
-                **DARK_LAYOUT,
+                height=280, xaxis_title='Return (%)', yaxis_title='Count', **DARK_LAYOUT,
             )
             st.plotly_chart(fig_hist, use_container_width=True)
 
     st.markdown("---")
     date_from = preds.index.min().strftime('%b %Y')
     date_to   = preds.index.max().strftime('%b %Y')
+    reentry_note = " · Re-entry on early close enabled." if reentry else ""
     st.info(
         f"Backtest period: **{start_date} → {date_to}** (full data: {date_from} → {date_to}) — "
         f"walk-forward predictions only (model trained on past data at each point). "
-        f"Fees: **{fees_pct*100:.2f}% per trade**."
+        f"Fees: **{fees_pct*100:.2f}% per trade**.{reentry_note}"
     )
