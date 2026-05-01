@@ -368,6 +368,10 @@ def render():
     with col_date:
         min_date = preds.index.min().date()
         max_date = (preds.index.max() - pd.Timedelta(days=7)).date()
+        # Apply pending jump before the widget is instantiated (Streamlit rule:
+        # widget key cannot be written after the widget renders in the same run)
+        if st.session_state.pop('_strat_jump_latest', False):
+            st.session_state['strat_start_date'] = max_date
         d_col, b_col = st.columns([4, 1])
         with d_col:
             start_date = st.date_input(
@@ -382,7 +386,7 @@ def render():
             st.markdown("<div style='height:27px'></div>", unsafe_allow_html=True)
             if st.button("→", key='strat_date_latest', use_container_width=True,
                          help=f"Jump to most recent start date ({max_date})"):
-                st.session_state['strat_start_date'] = max_date
+                st.session_state['_strat_jump_latest'] = True
 
     with col_reentry:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
