@@ -559,6 +559,10 @@ def render():
         active_trades['exit_reason'].str.contains('LIQUIDATED').sum()
         if len(active_trades) > 0 else 0
     )
+    sl_trades = (active_trades[active_trades['exit_reason'].str.contains('Stop loss')]
+                 if len(active_trades) > 0 else pd.DataFrame())
+    tp_trades = (active_trades[active_trades['exit_reason'].str.contains('Take profit')]
+                 if len(active_trades) > 0 else pd.DataFrame())
 
     cols = st.columns(5)
     with cols[0]:
@@ -583,9 +587,73 @@ def render():
     preset_label = preset if preset != 'Custom' else 'Custom filters'
 
     with tab_equity:
-        fig = go.Figure()
+        from plotly.subplots import make_subplots
 
-        # ─── Equity curve: two points per trade (open → close), one per skip
+        fig = make_subplots(
+            rows=2, cols=1,
+            shared_xaxes=True,
+            row_heights=[0.60, 0.40],
+            vertical_spacing=0.04,
+        )
+
+        bh_start  = pd.Timestamp(start_date)
+        bh_prices = prices.loc[prices.index >= bh_start, 'Close_BTC'].dropna()
+
+        # ── Top chart: BTC price ──────────────────────────────────────────────
+        if len(bh_prices) > 0:
+            fig.add_trace(go.Scatter(
+                x=bh_prices.index, y=bh_prices.values,
+                name='BTC Price', line=dict(color='#f59e0b', width=1.5),
+                mode='lines', hoverinfo='skip',
+            ), row=1, col=1)
+
+        if len(active_trades) > 0:
+            # B markers: slightly below entry price (trading chart convention)
+            entry_y   = (active_trades['entry_price'] * 0.975).tolist()
+            entry_hover = [
+                f"<b>BUY</b><br>"
+                f"Date: {t['date'].strftime('%Y-%m-%d')}<br>"
+                f"Entry price: ${t['entry_price']:,.0f}<br>"
+                f"Predicted: {t['predicted_return']*100:+.1f}%<br>"
+                f"Confidence: {t['confidence']}"
+                for _, t in active_trades.iterrows()
+            ]
+            fig.add_trace(go.Scatter(
+                x=active_trades['date'].tolist(), y=entry_y,
+                mode='markers+text',
+                text=['B'] * len(active_trades),
+                textposition='middle center',
+                textfont=dict(color='white', size=9, family='Arial Black'),
+                marker=dict(color='#10b981', size=18, symbol='circle'),
+                name='Entry (B)',
+                hovertext=entry_hover,
+                hoverinfo='text',
+            ), row=1, col=1)
+
+            # S markers: slightly above exit price
+            exit_y    = (active_trades['exit_price'] * 1.025).tolist()
+            exit_hover = [
+                f"<b>SELL</b><br>"
+                f"Exit date: {t['exit_date'].strftime('%Y-%m-%d')}<br>"
+                f"Exit price: ${t['exit_price']:,.0f}<br>"
+                f"Return: {t['leveraged_return_pct']:+.1f}%<br>"
+                f"P&L: ${t['pnl']:+,.0f}<br>"
+                f"Reason: {t['exit_reason']}"
+                for _, t in active_trades.iterrows()
+            ]
+            fig.add_trace(go.Scatter(
+                x=active_trades['exit_date'].tolist(), y=exit_y,
+                mode='markers+text',
+                text=['S'] * len(active_trades),
+                textposition='middle center',
+                textfont=dict(color='white', size=9, family='Arial Black'),
+                marker=dict(color='#f43f5e', size=18, symbol='circle'),
+                name='Exit (S)',
+                hovertext=exit_hover,
+                hoverinfo='text',
+            ), row=1, col=1)
+
+        # ── Bottom chart: capital evolution ───────────────────────────────────
         timeline_x, timeline_y = [], []
         for _, t in trades.iterrows():
             if t['action'] == 'SKIP':
@@ -602,71 +670,25 @@ def render():
             x=timeline_x, y=timeline_y,
             name=f'{preset_label} ({leverage:.0f}x)',
             line=dict(color='#3b82f6', width=2),
-            mode='lines',
-            hoverinfo='skip',
-        ))
+            mode='lines', hoverinfo='skip',
+            showlegend=False,
+        ), row=2, col=1)
 
-        # ─── Buy & Hold: smooth daily BTC line from backtest start
-        bh_start  = pd.Timestamp(start_date)
-        bh_prices = prices.loc[prices.index >= bh_start, 'Close_BTC'].dropna()
-        if len(bh_prices) > 0:
-            bh_vals = 10000 * bh_prices / bh_prices.iloc[0]
-            fig.add_trace(go.Scatter(
-                x=bh_prices.index, y=bh_vals,
-                name='Buy & Hold BTC', line=dict(color='#f59e0b', width=1.5, dash='dash'),
-                mode='lines', hoverinfo='skip',
-            ))
+        # ── Styling ───────────────────────────────────────────────────────────
+        fig.update_layout(
+            height=560,
+            template='plotly_dark',
+            paper_bgcolor='#0f1520',
+            plot_bgcolor='#0f1520',
+            font=dict(family='JetBrains Mono, monospace', color='#8899b4', size=11),
+            margin=dict(l=60, r=20, t=10, b=30),
+            legend=dict(orientation='h', y=1.03, font=dict(size=10)),
+        )
+        fig.update_xaxes(gridcolor='#1e2940', zerolinecolor='#1e2940')
+        fig.update_yaxes(gridcolor='#1e2940', zerolinecolor='#1e2940')
+        fig.update_yaxes(title_text='BTC Price ($)', row=1, col=1)
+        fig.update_yaxes(title_text='Capital ($)', row=2, col=1)
 
-        if len(active_trades) > 0:
-            entry_capital = (active_trades['capital_after'] - active_trades['pnl']).tolist()
-
-            # ─── Entry markers: green circle with "B", tooltip shows trade setup
-            entry_hover = [
-                f"<b>BUY</b><br>"
-                f"Date: {t['date'].strftime('%Y-%m-%d')}<br>"
-                f"Entry price: ${t['entry_price']:,.0f}<br>"
-                f"Predicted: {t['predicted_return']*100:+.1f}%<br>"
-                f"Confidence: {t['confidence']}<br>"
-                f"Capital: ${cap:,.0f}"
-                for (_, t), cap in zip(active_trades.iterrows(), entry_capital)
-            ]
-            fig.add_trace(go.Scatter(
-                x=active_trades['date'].tolist(), y=entry_capital,
-                mode='markers+text',
-                text=['B'] * len(active_trades),
-                textposition='middle center',
-                textfont=dict(color='white', size=9, family='Arial Black'),
-                marker=dict(color='#10b981', size=18, symbol='circle'),
-                name='Entry (B)',
-                hovertext=entry_hover,
-                hoverinfo='text',
-            ))
-
-            # ─── Exit markers: red circle with "S", tooltip shows outcome
-            exit_hover = [
-                f"<b>SELL</b><br>"
-                f"Exit date: {t['exit_date'].strftime('%Y-%m-%d')}<br>"
-                f"Exit price: ${t['exit_price']:,.0f}<br>"
-                f"Return: {t['leveraged_return_pct']:+.1f}%<br>"
-                f"P&L: ${t['pnl']:+,.0f}<br>"
-                f"Reason: {t['exit_reason']}<br>"
-                f"Capital: ${t['capital_after']:,.0f}"
-                for _, t in active_trades.iterrows()
-            ]
-            fig.add_trace(go.Scatter(
-                x=active_trades['exit_date'].tolist(),
-                y=active_trades['capital_after'].tolist(),
-                mode='markers+text',
-                text=['S'] * len(active_trades),
-                textposition='middle center',
-                textfont=dict(color='white', size=9, family='Arial Black'),
-                marker=dict(color='#f43f5e', size=18, symbol='circle'),
-                name='Exit (S)',
-                hovertext=exit_hover,
-                hoverinfo='text',
-            ))
-
-        fig.update_layout(height=420, yaxis_title='Portfolio Value ($)', **DARK_LAYOUT)
         st.plotly_chart(fig, use_container_width=True)
 
     with tab_trades:
