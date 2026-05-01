@@ -368,17 +368,21 @@ def render():
     with col_date:
         min_date = preds.index.min().date()
         max_date = (preds.index.max() - pd.Timedelta(days=7)).date()
-        if st.button("Latest →", key='strat_date_latest',
-                     help=f"Jump to most recent start date ({max_date})"):
-            st.session_state['strat_start_date'] = max_date
-        start_date = st.date_input(
-            "Backtest start",
-            value=min_date,
-            min_value=min_date,
-            max_value=max_date,
-            key='strat_start_date',
-            help="Move forward for a more realistic out-of-sample test. Earlier dates include the 2019–2021 bull run.",
-        )
+        d_col, b_col = st.columns([4, 1])
+        with d_col:
+            start_date = st.date_input(
+                "Backtest start",
+                value=min_date,
+                min_value=min_date,
+                max_value=max_date,
+                key='strat_start_date',
+                help="Move forward for a more realistic out-of-sample test. Earlier dates include the 2019–2021 bull run.",
+            )
+        with b_col:
+            st.markdown("<div style='height:27px'></div>", unsafe_allow_html=True)
+            if st.button("→", key='strat_date_latest', use_container_width=True,
+                         help=f"Jump to most recent start date ({max_date})"):
+                st.session_state['strat_start_date'] = max_date
 
     with col_reentry:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
