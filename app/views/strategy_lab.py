@@ -390,18 +390,42 @@ def render():
         with st.expander("Customize", expanded=True):
             st.markdown("**Signal Filters** — a trade opens only when all active filters pass")
 
-            c1, c2 = st.columns([3, 2])
+            min_magnitude = st.slider(
+                "Min predicted return (%)", 0.0, 15.0,
+                key='strat_min_magnitude', step=0.5,
+                help="Only enter when the model predicts at least this % return over 7 days. "
+                     "0 = any positive prediction.",
+            )
+
+            c1, c2 = st.columns(2)
             with c1:
-                min_magnitude = st.slider(
-                    "Min predicted return (%)", 0.0, 15.0,
-                    key='strat_min_magnitude', step=0.5,
-                    help="Only enter when the model predicts at least this % return over 7 days. "
-                         "0 = any positive prediction.",
+                trend_enabled = st.toggle(
+                    "Trend filter (above SMA)", key='strat_trend_enabled',
+                    help="Only enter when BTC is trading above its moving average (uptrend regime).",
                 )
             with c2:
-                st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-                rsi_enabled = st.toggle("RSI filter", key='strat_rsi_enabled',
-                                        help="Skip trade if BTC RSI is above the threshold (overbought).")
+                macd_enabled = st.toggle(
+                    "MACD filter (histogram > 0)", key='strat_macd_enabled',
+                    help="Only enter when the daily MACD histogram is positive — "
+                         "momentum is building in the bullish direction.",
+                )
+
+            c3, c4 = st.columns(2)
+            with c3:
+                rsi_enabled = st.toggle(
+                    "RSI filter", key='strat_rsi_enabled',
+                    help="Skip trade if BTC RSI is above the threshold (overbought).",
+                )
+            with c4:
+                volume_enabled = st.toggle(
+                    "Volume filter (above 30-day average)", key='strat_volume_enabled',
+                    help="Only enter on above-average volume days — avoids low-conviction moves.",
+                )
+
+            if trend_enabled:
+                sma_period = st.selectbox("SMA period", [50, 200], key='strat_sma_period')
+            else:
+                sma_period = st.session_state.get('strat_sma_period', 50)
 
             if rsi_enabled:
                 rsi_max = st.slider(
@@ -410,30 +434,6 @@ def render():
                 )
             else:
                 rsi_max = st.session_state.get('strat_rsi_max', 70.0)
-
-            c3, c4 = st.columns(2)
-            with c3:
-                trend_enabled = st.toggle(
-                    "Trend filter (above SMA)", key='strat_trend_enabled',
-                    help="Only enter when BTC is trading above its moving average (uptrend regime).",
-                )
-                if trend_enabled:
-                    sma_period = st.selectbox(
-                        "SMA period", [50, 200], key='strat_sma_period',
-                    )
-                else:
-                    sma_period = st.session_state.get('strat_sma_period', 50)
-            with c4:
-                macd_enabled = st.toggle(
-                    "MACD filter (histogram > 0)", key='strat_macd_enabled',
-                    help="Only enter when the daily MACD histogram is positive — "
-                         "momentum is building in the bullish direction.",
-                )
-
-            volume_enabled = st.toggle(
-                "Volume filter (above 30-day average)", key='strat_volume_enabled',
-                help="Only enter on above-average volume days — avoids low-conviction moves.",
-            )
 
             st.markdown("---")
             st.markdown("**Risk Management**")
@@ -459,9 +459,12 @@ def render():
                 if leverage > 10:
                     st.warning(f"At {leverage}x, a {100/leverage:.1f}% drop = liquidation.")
             with c8:
-                fees_pct = st.slider(
-                    "Trading Fees (%)", 0.0, 1.0, key='strat_fees', step=0.05,
-                    help="Round-trip cost per trade (entry + exit). 0.2% is typical for spot crypto.",
+                funding_rate = st.slider(
+                    "Funding Rate (%/day)", 0.0, 0.10, key='strat_funding', step=0.005,
+                    help="Daily cost of holding a leveraged position (perpetual futures). "
+                         "0.03%/day = standard Binance/Bybit rate. Only applies above 1x.",
+                    format="%.3f",
+                    disabled=(leverage == 1.0),
                 ) / 100
 
             c9, c10 = st.columns(2)
@@ -471,12 +474,9 @@ def render():
                     help="Market impact on fill price. Entry costs more, exits pay less.",
                 ) / 100
             with c10:
-                funding_rate = st.slider(
-                    "Funding Rate (%/day)", 0.0, 0.10, key='strat_funding', step=0.005,
-                    help="Daily cost of holding a leveraged position (perpetual futures). "
-                         "0.03%/day = standard Binance/Bybit rate. Only applies above 1x.",
-                    format="%.3f",
-                    disabled=(leverage == 1.0),
+                fees_pct = st.slider(
+                    "Trading Fees (%)", 0.0, 1.0, key='strat_fees', step=0.05,
+                    help="Round-trip cost per trade (entry + exit). 0.2% is typical for spot crypto.",
                 ) / 100
 
         # Active filter summary
@@ -533,13 +533,15 @@ def render():
         st.warning("No trades to display with the current settings.")
         return
 
-    # ─── Honest framing callout ─────────────────────────────────────────────
-    st.warning(
-        "Results are optimistic: the 52 model features were chosen on the full dataset, "
-        "inflating historical accuracy vs. true out-of-sample. "
-        "Move the **Backtest start** date forward for a more realistic picture.",
-        icon="⚠️",
-    )
+    # ─── Honest framing callout (only when backtest covers > 1 year of history) ──
+    from datetime import date as _date, timedelta as _timedelta
+    if start_date < (_date.today() - _timedelta(days=365)):
+        st.warning(
+            "Results are optimistic: the 52 model features were chosen on the full dataset, "
+            "inflating historical accuracy vs. true out-of-sample. "
+            "Move the **Backtest start** date forward for a more realistic picture.",
+            icon="⚠️",
+        )
 
     # ─── Summary metrics ────────────────────────────────────────────────────
     active_trades = trades[trades['action'] == 'LONG']
@@ -566,7 +568,7 @@ def render():
         wr = f"{(active_trades['leveraged_return_pct'] > 0).mean():.0%}" if len(active_trades) > 0 else "—"
         styled_metric("Win Rate", wr, color='blue')
     with cols[2]:
-        styled_metric("Trades", f"{len(active_trades)}/{len(trades)}", color='violet')
+        styled_metric("Trades", str(len(active_trades)), f"{len(skipped)} skipped", color='violet')
     with cols[3]:
         styled_metric("Liquidations", str(liquidations),
                       color='rose' if liquidations > 0 else 'emerald')
@@ -587,6 +589,7 @@ def render():
             x=trades['date'], y=trades['capital_after'],
             name=f'{preset_label} ({leverage:.0f}x)',
             line=dict(color='#3b82f6', width=2),
+            mode='lines',
         ))
 
         first_price = prices.loc[trades['date'].iloc[0], 'Close_BTC']
@@ -600,12 +603,24 @@ def render():
         fig.add_trace(go.Scatter(
             x=trades['date'], y=bh_values,
             name='Buy & Hold', line=dict(color='#f59e0b', width=2, dash='dash'),
+            mode='lines',
         ))
 
+        # Entry markers — capital before the trade opened
+        if len(active_trades) > 0:
+            capital_at_entry = active_trades['capital_after'] - active_trades['pnl']
+            fig.add_trace(go.Scatter(
+                x=active_trades['date'], y=capital_at_entry,
+                mode='markers', name='Entry',
+                marker=dict(color='#60a5fa', size=8, symbol='circle-open',
+                            line=dict(width=2, color='#60a5fa')),
+            ))
+
+        # Exit markers — plotted at exit_date with post-trade capital
         liq_trades = active_trades[active_trades['exit_reason'].str.contains('LIQUIDATED')]
         if len(liq_trades) > 0:
             fig.add_trace(go.Scatter(
-                x=liq_trades['date'], y=liq_trades['capital_after'],
+                x=liq_trades['exit_date'], y=liq_trades['capital_after'],
                 mode='markers', name='Liquidation',
                 marker=dict(color='#f43f5e', size=12, symbol='x'),
             ))
@@ -613,17 +628,25 @@ def render():
         sl_trades = active_trades[active_trades['exit_reason'].str.contains('Stop loss')]
         if len(sl_trades) > 0:
             fig.add_trace(go.Scatter(
-                x=sl_trades['date'], y=sl_trades['capital_after'],
+                x=sl_trades['exit_date'], y=sl_trades['capital_after'],
                 mode='markers', name='Stop Loss',
-                marker=dict(color='#f43f5e', size=8, symbol='triangle-down'),
+                marker=dict(color='#f43f5e', size=9, symbol='triangle-down'),
             ))
 
         tp_trades = active_trades[active_trades['exit_reason'].str.contains('Take profit')]
         if len(tp_trades) > 0:
             fig.add_trace(go.Scatter(
-                x=tp_trades['date'], y=tp_trades['capital_after'],
+                x=tp_trades['exit_date'], y=tp_trades['capital_after'],
                 mode='markers', name='Take Profit',
-                marker=dict(color='#10b981', size=8, symbol='triangle-up'),
+                marker=dict(color='#10b981', size=9, symbol='triangle-up'),
+            ))
+
+        eow_trades = active_trades[active_trades['exit_reason'] == 'End of window']
+        if len(eow_trades) > 0:
+            fig.add_trace(go.Scatter(
+                x=eow_trades['exit_date'], y=eow_trades['capital_after'],
+                mode='markers', name='Window close',
+                marker=dict(color='#94a3b8', size=7, symbol='circle'),
             ))
 
         fig.update_layout(height=400, yaxis_title='Portfolio Value ($)', **DARK_LAYOUT)
