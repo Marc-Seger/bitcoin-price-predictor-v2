@@ -68,16 +68,16 @@ def _profile_grid(desc: str, lev: str, tp: str, sl: str, slip: str, fund: str, n
             f"<div style='font-size:14px;font-weight:600;color:#e8edf5;font-family:JetBrains Mono,monospace;'>{value}</div>"
             f"</div>"
         )
-    note_html = f"<p style='margin:10px 0 0 0;font-size:12px;color:#56657e;'>{note}</p>" if note else ''
+    note_html = f"<p style='margin:0 0 10px 0;color:#8899b4;'>{note}</p>" if note else ''
     return (
-        f"<p style='margin:0 0 10px 0;color:#8899b4;'>{desc}</p>"
-        f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;'>"
+        f"<p style='margin:0 0 4px 0;color:#8899b4;'>{desc}</p>"
+        + note_html
+        + f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;'>"
         + _cell('Leverage', lev) + _cell('Take Profit', tp) + _cell('Stop Loss', sl)
         + f"</div>"
         f"<div style='display:grid;grid-template-columns:repeat(2,1fr);gap:8px;'>"
         + _cell('Slippage', slip) + _cell('Funding Fee', fund)
         + f"</div>"
-        + note_html
     )
 
 
