@@ -61,7 +61,7 @@ def main():
     # Check raw source columns only (not computed indicators — those have
     # expected NaN at the start of the series due to rolling window warmup).
     RAW_COLS = [
-        'Close_BTC',
+        'Close_BTC', 'Close_SP500', 'Close_NASDAQ', 'Close_GOLD', 'Close_DXY',
         'Sentiment_BTC_index_value',
         'Sentiment_GT_Bitcoin',
         'OnChain_Active_Addresses', 'OnChain_Transaction_Count',
