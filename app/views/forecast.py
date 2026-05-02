@@ -123,7 +123,7 @@ def render():
     st.markdown("### Past Predictions")
     st.caption(
         "Every prediction the model has made — walk-forward historical (2019 → early 2026) "
-        "plus live production predictions (March 2026 → now). "
+        "plus live production predictions (March 2026 → now).<br>"
         "<span style='color:#3b82f6;'>●</span> = live &nbsp; ⏳ = pending &nbsp; ✅ = correct &nbsp; ❌ = wrong",
         unsafe_allow_html=True,
     )
