@@ -92,6 +92,9 @@ def predict_current() -> dict:
     if pd.isna(btc_price):
         return {'error': f'BTC price is NaN for {prediction_date}. master_df has a data gap.'}
 
+    from datetime import date as _date
+    days_stale = (_date.today() - prediction_date.date()).days
+
     return {
         'prediction_date': prediction_date.strftime('%Y-%m-%d'),
         'target_date': (prediction_date + timedelta(days=7)).strftime('%Y-%m-%d'),
@@ -100,6 +103,7 @@ def predict_current() -> dict:
         'confidence': confidence,
         'btc_price': float(btc_price),
         'predicted_price': float(btc_price * (1 + predicted_return)),
+        'days_stale': days_stale,
     }
 
 

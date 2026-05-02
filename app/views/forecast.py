@@ -27,6 +27,14 @@ def render():
         st.error(prediction['error'])
         return
 
+    days_stale = prediction.get('days_stale', 0)
+    if days_stale > 2:
+        st.warning(
+            f"Prediction is {days_stale} day{'s' if days_stale != 1 else ''} old "
+            f"(based on data from {prediction['prediction_date']}) — "
+            f"the pipeline may not have run recently."
+        )
+
     # Show the data date clearly
     st.caption(f"Prediction based on data from {prediction['prediction_date']}")
 
