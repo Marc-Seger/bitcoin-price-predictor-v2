@@ -568,7 +568,8 @@ def render():
         start_date, reentry,
     )
 
-    if trades.empty:
+    no_trades = trades.empty
+    if no_trades:
         last_pred_date = preds.index.max().date()
         if start_date > last_pred_date:
             st.info(
@@ -577,7 +578,6 @@ def render():
             )
         else:
             st.info("No trades with the current filter settings.")
-        return
 
     # ─── Honest framing callout (only when backtest covers > 1 year of history) ──
     from datetime import date as _date, timedelta as _timedelta
@@ -588,6 +588,29 @@ def render():
             "Move the **Backtest start** date forward for a more realistic picture.",
             icon="⚠️",
         )
+
+    if no_trades:
+        # Still render the chart with BTC price + flat $10k equity line
+        bh_start  = pd.Timestamp(start_date)
+        bh_prices = prices.loc[prices.index >= bh_start, 'Close_BTC'].dropna()
+        from plotly.subplots import make_subplots as _msp
+        fig = _msp(rows=2, cols=1, shared_xaxes=True, row_heights=[0.60, 0.40], vertical_spacing=0.04)
+        if len(bh_prices) > 0:
+            fig.add_trace(go.Scatter(x=bh_prices.index, y=bh_prices.values,
+                name='BTC Price', line=dict(color='#f59e0b', width=1.5), hoverinfo='skip'), row=1, col=1)
+            fig.add_trace(go.Scatter(
+                x=[bh_prices.index[0], bh_prices.index[-1]], y=[10000, 10000],
+                name='Capital', line=dict(color='#3b82f6', width=2, dash='dot'), hoverinfo='skip',
+                showlegend=False), row=2, col=1)
+        fig.update_layout(height=560, template='plotly_dark', paper_bgcolor='#0f1520',
+            plot_bgcolor='#0f1520', font=dict(family='JetBrains Mono, monospace', color='#8899b4', size=11),
+            margin=dict(l=60, r=20, t=10, b=30))
+        fig.update_xaxes(gridcolor='#1e2940', zerolinecolor='#1e2940')
+        fig.update_yaxes(gridcolor='#1e2940', zerolinecolor='#1e2940')
+        fig.update_yaxes(title_text='BTC Price ($)', row=1, col=1)
+        fig.update_yaxes(title_text='Capital ($)', row=2, col=1)
+        st.plotly_chart(fig, use_container_width=True)
+        return
 
     # ─── Summary metrics ────────────────────────────────────────────────────
     active_trades = trades[trades['action'] == 'LONG']
