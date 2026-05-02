@@ -62,8 +62,7 @@ PRESETS = {
 
 PROFILE_DESCRIPTIONS = {
     'Conservative': (
-        'Enters a long whenever the model predicts any positive 7-day return. '
-        'No extra filters — the purest test of the model\'s directional edge.\n\n'
+        'Enters a long whenever the model predicts any positive 7-day return.\n\n'
         '- **Leverage:** 1× (no liquidation risk)\n'
         '- **Take profit:** 15%\n'
         '- **Stop loss:** 5%\n'
@@ -540,7 +539,7 @@ def render():
         slippage_pct    = p['slippage_pct'] / 100
         funding_rate    = p['funding_rate'] / 100
 
-        st.info(PROFILE_DESCRIPTIONS[preset])
+        st.markdown(PROFILE_DESCRIPTIONS[preset])
 
     filters = {
         'min_magnitude':  min_magnitude,
