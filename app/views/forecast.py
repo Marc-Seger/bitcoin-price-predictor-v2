@@ -115,7 +115,7 @@ def render():
     st.markdown("---")
 
     # ─── Prediction log ──────────────────────────────────────────────────────
-    st.markdown("### Past Predictions")
+    st.markdown("### Prediction Log")
     st.caption(
         "Every prediction the model has made — walk-forward historical (2019 → early 2026) "
         "plus live production predictions (March 2026 → now).<br>"
