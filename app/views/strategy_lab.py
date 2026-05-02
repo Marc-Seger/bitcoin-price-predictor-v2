@@ -391,12 +391,14 @@ def render():
     _sync_preset(preset)
 
     with col_date:
-        min_date = preds.index.min().date()
-        max_date = (preds.index.max() - pd.Timedelta(days=7)).date()
+        from datetime import date as _date_cls
+        min_date  = prices.index.min().date()
+        max_date  = _date_cls.today()
+        last_pred = preds.index.max().date()
         # on_click runs before the script reruns, so session state is set
         # before st.date_input renders — the only safe way to update a widget key.
         def _jump_to_latest():
-            st.session_state['strat_start_date'] = max_date
+            st.session_state['strat_start_date'] = last_pred
         d_col, b_col = st.columns([4, 1])
         with d_col:
             start_date = st.date_input(
@@ -410,7 +412,7 @@ def render():
         with b_col:
             st.markdown("<div style='height:27px'></div>", unsafe_allow_html=True)
             st.button("→", key='strat_date_latest', use_container_width=True,
-                      help=f"Jump to most recent start date ({max_date})",
+                      help=f"Jump to most recent prediction date ({last_pred})",
                       on_click=_jump_to_latest)
 
     with col_reentry:
@@ -567,7 +569,14 @@ def render():
     )
 
     if trades.empty:
-        st.warning("No trades to display with the current settings.")
+        last_pred_date = preds.index.max().date()
+        if start_date > last_pred_date:
+            st.info(
+                f"No trades — the walk-forward evaluation ends at **{last_pred_date}**. "
+                f"No model predictions exist from {start_date} onwards."
+            )
+        else:
+            st.info("No trades with the current filter settings.")
         return
 
     # ─── Honest framing callout (only when backtest covers > 1 year of history) ──
