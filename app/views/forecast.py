@@ -113,18 +113,6 @@ def render():
         )
 
     st.markdown("---")
-    st.caption(
-        "Predictions are logged automatically via GitHub Actions daily at 07:00 UTC. "
-        "Visit the Strategy Lab to see historical backtest results."
-    )
-
-    # Drift banner
-    if drift['status'] == 'WARNING':
-        st.error(f"Model drift detected: {drift['message']}")
-    elif drift['status'] == 'OK':
-        st.success(drift['message'])
-    else:
-        st.info(drift['message'])
 
     # ─── Prediction log ──────────────────────────────────────────────────────
     st.markdown("---")
@@ -241,3 +229,18 @@ def render():
             f"<tbody>{body}</tbody></table></div>",
             unsafe_allow_html=True,
         )
+
+    st.markdown("---")
+
+    # Drift banner — at the bottom, after the prediction log
+    if drift['status'] == 'WARNING':
+        st.error(f"Model drift detected: {drift['message']}")
+    elif drift['status'] == 'OK':
+        st.success(drift['message'])
+    else:
+        st.info(drift['message'])
+
+    st.caption(
+        "Predictions are logged automatically via GitHub Actions daily at 22:00 UTC. "
+        "Visit the Strategy Lab to see historical backtest results."
+    )
