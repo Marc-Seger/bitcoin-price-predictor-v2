@@ -127,7 +127,19 @@ def forward_fill_sparse(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def save_master(df: pd.DataFrame):
-    df.to_csv(MASTER_DF_PATH)
+    tmp_path = MASTER_DF_PATH + '.tmp'
+    try:
+        df.to_csv(tmp_path)
+        saved = pd.read_csv(tmp_path, index_col=0, parse_dates=True)
+        if len(saved) < len(df) - 1:
+            raise ValueError(
+                f'Write verification failed: wrote {len(df)} rows but read back {len(saved)}'
+            )
+        os.replace(tmp_path, MASTER_DF_PATH)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
     print(f'merge: master_df saved ({len(df)} rows, {len(df.columns)} columns).')
 
 
