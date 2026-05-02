@@ -370,6 +370,9 @@ def fetch_etf_flows(last_date: str) -> pd.DataFrame:
     result = df[[COL_ETF_FLOW]]
 
     result = result[result.index >= pd.Timestamp(start)]
+    if result.empty:
+        print('ETF flows: already up to date.')
+        return result
     print(f'ETF flows: fetched {len(result)} new rows ({result.index.min().date()} → {result.index.max().date()}).')
     return result
 
