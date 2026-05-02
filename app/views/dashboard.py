@@ -50,8 +50,11 @@ def render():
 
     latest = valid.iloc[-1]
     price = latest[close_col]
-    prev_7d = valid.iloc[-8][close_col] if len(valid) > 8 else price
-    prev_30d = valid.iloc[-31][close_col] if len(valid) > 31 else price
+    last_date = valid.index[-1]
+    _rows_7d  = valid[valid.index <= last_date - pd.Timedelta(days=7)]
+    _rows_30d = valid[valid.index <= last_date - pd.Timedelta(days=30)]
+    prev_7d  = _rows_7d[close_col].iloc[-1]  if not _rows_7d.empty  else price
+    prev_30d = _rows_30d[close_col].iloc[-1] if not _rows_30d.empty else price
     ath = df[close_col].max()
 
     data_date = valid.index[-1].strftime("%d %b %Y")
@@ -444,7 +447,9 @@ def render():
             col_val, col_chart = st.columns([1, 3])
             with col_val:
                 current = data.iloc[-1]
-                prev = data.iloc[-8] if len(data) > 8 else data.iloc[0]
+                _oc_last = data.index[-1]
+                _oc_7d = data[data.index <= _oc_last - pd.Timedelta(days=7)]
+                prev = _oc_7d.iloc[-1] if not _oc_7d.empty else data.iloc[0]
                 change = (current / prev - 1) if prev != 0 else 0
                 styled_metric(display_name, f"{current:,.0f}", f"{change:+.1%} (7d)", color=color)
                 st.caption(description)
