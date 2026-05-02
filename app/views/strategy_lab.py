@@ -75,7 +75,7 @@ def _profile_grid(desc: str, lev: str, tp: str, sl: str, slip: str, fund: str, n
         + f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;'>"
         + _cell('Leverage', lev) + _cell('Take Profit', tp) + _cell('Stop Loss', sl)
         + f"</div>"
-        f"<div style='display:grid;grid-template-columns:repeat(2,1fr);gap:8px;'>"
+        f"<div style='display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:16px;'>"
         + _cell('Slippage', slip) + _cell('Funding Fee', fund)
         + f"</div>"
     )
