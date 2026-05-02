@@ -60,35 +60,42 @@ PRESETS = {
     },
 }
 
+def _profile_grid(desc: str, lev: str, tp: str, sl: str, slip: str, fund: str, note: str = '') -> str:
+    def _cell(label, value):
+        return (
+            f"<div style='background:#1a2235;border:1px solid #263354;border-radius:6px;padding:8px 12px;'>"
+            f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:0.6px;color:#56657e;margin-bottom:3px;'>{label}</div>"
+            f"<div style='font-size:14px;font-weight:600;color:#e8edf5;font-family:JetBrains Mono,monospace;'>{value}</div>"
+            f"</div>"
+        )
+    note_html = f"<p style='margin:10px 0 0 0;font-size:12px;color:#56657e;'>{note}</p>" if note else ''
+    return (
+        f"<p style='margin:0 0 10px 0;color:#8899b4;'>{desc}</p>"
+        f"<div style='display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:8px;'>"
+        + _cell('Leverage', lev) + _cell('Take Profit', tp) + _cell('Stop Loss', sl)
+        + f"</div>"
+        f"<div style='display:grid;grid-template-columns:repeat(2,1fr);gap:8px;'>"
+        + _cell('Slippage', slip) + _cell('Funding Fee', fund)
+        + f"</div>"
+        + note_html
+    )
+
+
 PROFILE_DESCRIPTIONS = {
-    'Conservative': (
-        'Enters a long whenever the model predicts any positive 7-day return.\n\n'
-        '- **Leverage:** 1× (no liquidation risk)\n'
-        '- **Take profit:** 15%\n'
-        '- **Stop loss:** 5%\n'
-        '- **Slippage:** 0.1% applied on fills\n'
-        '- **Funding fees:** N/A (spot position)\n\n'
-        'If TP/SL isn\'t triggered, the trade closes automatically at day 7.'
+    'Conservative': _profile_grid(
+        'Enters a long whenever the model predicts any positive 7-day return.',
+        '1×', '15%', '5%', '0.1%', 'N/A (spot)',
+        note='If TP/SL isn\'t triggered, the trade closes automatically at day 7.',
     ),
-    'Moderate': (
-        'Enters when the model predicts a return above **5%** and RSI is below **70** '
-        '(avoids buying into overbought conditions).\n\n'
-        '- **Leverage:** 2×\n'
-        '- **Take profit:** 20%\n'
-        '- **Stop loss:** 8%\n'
-        '- **Slippage:** 0.1% applied on fills\n'
-        '- **Funding fees:** 0.03%/day on the leveraged position\n\n'
-        'If TP/SL isn\'t triggered, the trade closes automatically at day 7.'
+    'Moderate': _profile_grid(
+        'Enters when the model predicts a return above 5% and RSI is below 70.',
+        '2×', '20%', '8%', '0.1%', '0.03%/day',
+        note='If TP/SL isn\'t triggered, the trade closes automatically at day 7.',
     ),
-    'Aggressive': (
-        'Enters when the model predicts >5%, RSI is below 70, price is above the 50-day SMA '
-        '(uptrend confirmed), and MACD histogram is positive (momentum aligns).\n\n'
-        '- **Leverage:** 5× (a 20% adverse move = full liquidation)\n'
-        '- **Take profit:** 30%\n'
-        '- **Stop loss:** 10%\n'
-        '- **Slippage:** 0.1% applied on fills\n'
-        '- **Funding fees:** 0.03%/day on the leveraged position\n\n'
-        'Full-history results are dominated by the 2019–2024 bull run — use a recent start date for a realistic picture.'
+    'Aggressive': _profile_grid(
+        'Enters when the model predicts &gt;5%, RSI &lt; 70, price above 50-day SMA, and MACD positive.',
+        '5×', '30%', '10%', '0.1%', '0.03%/day',
+        note='Full-history results are dominated by the 2019–2024 bull run — use a recent start date for a realistic picture.',
     ),
 }
 
@@ -539,7 +546,7 @@ def render():
         slippage_pct    = p['slippage_pct'] / 100
         funding_rate    = p['funding_rate'] / 100
 
-        st.markdown(PROFILE_DESCRIPTIONS[preset])
+        st.markdown(PROFILE_DESCRIPTIONS[preset], unsafe_allow_html=True)
 
     filters = {
         'min_magnitude':  min_magnitude,
