@@ -203,7 +203,7 @@ def update_outcomes():
 # ─────────────────────────────────────────────
 
 DRIFT_THRESHOLD = 0.60  # minimum acceptable direction accuracy
-DRIFT_WINDOW = 20       # number of resolved predictions to check
+DRIFT_WINDOW = 10       # number of resolved predictions to check
 
 def check_drift() -> dict:
     """

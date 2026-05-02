@@ -366,22 +366,38 @@ def render():
 
         streak_n, streak_win = _streak(resolved)
 
-        kpi_cols = st.columns(4)
+        # Walk-forward non-overlapping accuracy from CSV (historical baseline)
+        _wf_acc_val, _wf_n_val = None, 0
+        _wf_path = os.path.join(RESULTS_DIR, 'XGB_7d_walkforward_results.csv')
+        if os.path.exists(_wf_path):
+            _wf = pd.read_csv(_wf_path, index_col=0, parse_dates=True)
+            _wf['correct'] = ((_wf['actual'] > 0) == (_wf['predicted'] > 0)).astype(int)
+            _wf_no = _wf.iloc[::7]
+            _wf_acc_val = _wf_no['correct'].mean()
+            _wf_n_val   = len(_wf_no)
+
+        kpi_cols = st.columns(5)
         with kpi_cols[0]:
+            if _wf_acc_val is not None:
+                styled_metric("Walk-Forward Accuracy", f"{_wf_acc_val:.1%}",
+                              f"{_wf_n_val:,} windows (historical)", color='blue')
+            else:
+                styled_metric("Walk-Forward Accuracy", "—", color='blue')
+        with kpi_cols[1]:
             overall_acc = resolved['correct'].mean() if len(resolved) > 0 else 0
             styled_metric("All-Time Accuracy", f"{overall_acc:.1%}",
                           f"{len(resolved):,} predictions", color='blue')
-        with kpi_cols[1]:
+        with kpi_cols[2]:
             last30_acc = last30['correct'].mean() if len(last30) > 0 else 0
             styled_metric("Last 30 Accuracy", f"{last30_acc:.1%}",
                           color='emerald' if last30_acc >= 0.5 else 'rose')
-        with kpi_cols[2]:
+        with kpi_cols[3]:
             live_count = len(log[log['source'] == 'live'])
             live_res   = resolved[resolved['source'] == 'live']
             live_acc   = live_res['correct'].mean() if len(live_res) > 0 else 0
             styled_metric("Live Production Accuracy", f"{live_acc:.1%}",
                           f"{live_count} live predictions", color='violet')
-        with kpi_cols[3]:
+        with kpi_cols[4]:
             if streak_n and streak_win is not None:
                 streak_label = f"{'✓' if streak_win else '✗'} {streak_n} in a row"
                 streak_color = 'emerald' if streak_win else 'rose'
