@@ -2,8 +2,8 @@ name: Daily Data Update & Prediction
 
 on:
   schedule:
-    # Run at 07:00 UTC daily (after US markets close, crypto markets 24/7)
-    - cron: '0 7 * * *'
+    # Run at 22:00 UTC daily — 2h after NYSE close (20:00 UTC), so all daily candles are final
+    - cron: '0 22 * * *'
   workflow_dispatch:  # Allow manual trigger from GitHub UI
 
 permissions:

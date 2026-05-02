@@ -98,6 +98,20 @@ if 'Close_BTC' in df.columns and len(df) >= 3:
     else:
         ok("Close_BTC varies across last 3 rows (not frozen)")
 
+# SP500 / NASDAQ: check last 5 weekday rows aren't all identical
+# (catches the case where the pipeline ran before market close and ffill locked in a stale value)
+for asset_col in ('Close_SP500', 'Close_NASDAQ'):
+    if asset_col not in df.columns:
+        warn(f"{asset_col} not in master_df — skipping frozen-value check")
+        continue
+    weekday_series = df[asset_col][df.index.dayofweek < 5].dropna()
+    if len(weekday_series) >= 5:
+        last5 = weekday_series.iloc[-5:]
+        if last5.nunique() == 1:
+            fail(f"{asset_col} is identical across last 5 weekdays ({last5.iloc[0]:,.2f}) — data likely frozen")
+        else:
+            ok(f"{asset_col} varies across last 5 weekdays (not frozen)")
+
 
 # ─────────────────────────────────────────────
 # Check 3 — Value ranges

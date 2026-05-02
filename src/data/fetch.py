@@ -65,8 +65,10 @@ def fetch_yfinance(last_date: str) -> pd.DataFrame:
         print('yfinance: already up to date.')
         return pd.DataFrame()
 
-    # 2-day lookback so yesterday's complete candle fills any prior NaN rows
-    start = (pd.to_datetime(last_date) - timedelta(days=2)).date()
+    # 10-day lookback so the pipeline self-heals if a prior run missed candles
+    # (e.g. pipeline ran before market close, forward-filling a stale value).
+    # The merge step uses overwrite=True so real candles replace any stale ffill.
+    start = (pd.to_datetime(last_date) - timedelta(days=10)).date()
     # yfinance end is exclusive — add 1 day to include today's candle if available
     fetch_end = end + timedelta(days=1)
 
@@ -94,7 +96,7 @@ def fetch_yfinance(last_date: str) -> pd.DataFrame:
 
     result = pd.concat(frames, axis=1)
     result.index.name = 'date'
-    print(f'yfinance: fetched {len(result)} rows ({start} → {fetch_end}, includes 2-day lookback).')
+    print(f'yfinance: fetched {len(result)} rows ({start} → {fetch_end}, includes 10-day lookback).')
     return result
 
 

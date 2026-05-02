@@ -79,14 +79,17 @@ def append_new_rows(master: pd.DataFrame, new_data: pd.DataFrame) -> pd.DataFram
     last_date = master.index.max()
     new_rows = new_data[new_data.index > last_date]
 
-    # Backfill NaN in existing rows from overlapping fetched data
-    # (e.g. CoinMetrics publishes Apr 8 data on Apr 10 — fill it in)
+    # Backfill existing rows from overlapping fetched data.
+    # overwrite=True (pandas default) replaces existing values with new non-NaN values,
+    # but never writes NaN into a cell that already has data. This is intentional:
+    # it allows forward-filled SP500/NASDAQ values to be corrected when the real candle
+    # becomes available on the next run, while still preserving good CoinMetrics data
+    # if the API returns NaN for a date it hasn't published yet.
     overlap = new_data[new_data.index <= last_date]
     if not overlap.empty:
-        # update() with overwrite=False only fills NaN cells, never overwrites real values
-        master.update(overlap, overwrite=False)
+        master.update(overlap)
         filled = overlap.shape[0]
-        print(f'merge: backfilled up to {filled} rows with previously-NaN data.')
+        print(f'merge: backfilled up to {filled} rows with latest fetched data.')
 
     if new_rows.empty:
         print('merge: no new rows to append (but may have backfilled NaN above).')
