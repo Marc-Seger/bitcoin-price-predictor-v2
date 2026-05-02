@@ -113,6 +113,22 @@ for asset_col in ('Close_SP500', 'Close_NASDAQ', 'Close_GOLD', 'Close_DXY'):
             ok(f"{asset_col} varies across last 5 weekdays (not frozen)")
 
 
+# FRED macro: at least one of the 7 series should have changed in the last 45 days.
+# Individual rates can hold steady for months (e.g. Fed funds rate), but CPI, GDP,
+# unemployment, PCE etc. publish on different schedules — total silence across all
+# 7 columns for 45 days would indicate the API key is missing or FRED is unreachable.
+fred_cols = [c for c in ['Macro_CPI', 'Macro_Interest_Rate', 'Macro_Unemployment_Rate',
+                          'Macro_PCE', 'Macro_GDP', 'Macro_10Y_Treasury_Yield',
+                          'Macro_M2_Money_Supply'] if c in df.columns]
+if fred_cols:
+    last45 = df[fred_cols].tail(45)
+    any_changed = any(last45[c].nunique() > 1 for c in fred_cols)
+    if not any_changed:
+        fail("All FRED macro columns identical across last 45 rows — API key may be missing or FRED unreachable")
+    else:
+        ok("At least one FRED macro column has varied in last 45 rows (FRED data fresh)")
+
+
 # ─────────────────────────────────────────────
 # Check 3 — Value ranges
 # ─────────────────────────────────────────────

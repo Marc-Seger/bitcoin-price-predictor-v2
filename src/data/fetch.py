@@ -119,6 +119,10 @@ def fetch_fred(last_date: str) -> pd.DataFrame:
     Returns a DataFrame indexed by date (monthly/quarterly release dates).
     Forward-filling into daily frequency happens in merge.py.
     """
+    if not FRED_API_KEY:
+        print('FRED: WARNING — FRED_API_KEY not set. Skipping macro fetch.')
+        return pd.DataFrame()
+
     start, end = _date_range(last_date)
     if not start:
         print('FRED: already up to date.')
