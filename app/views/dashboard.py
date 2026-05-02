@@ -57,10 +57,10 @@ def render():
     prev_30d = _rows_30d[close_col].iloc[-1] if not _rows_30d.empty else price
     ath = df[close_col].max()
 
-    from datetime import datetime as _dt
+    from datetime import datetime as _dt, timezone as _tz
     _mtime = os.path.getmtime(MASTER_DF_PATH)
-    _refresh = _dt.fromtimestamp(_mtime).strftime("%d/%m/%Y - %I:%M %p").replace(" 0", " ")
-    st.caption(f"Last data refresh: {_refresh}")
+    _refresh = _dt.fromtimestamp(_mtime, tz=_tz.utc).strftime("%d/%m/%Y - %I:%M %p").replace(" 0", " ")
+    st.caption(f"Last data refresh: {_refresh} UTC")
 
     price_fmt = f"${price:,.0f}" if asset != 'DXY' else f"{price:,.2f}"
 
