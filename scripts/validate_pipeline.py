@@ -113,6 +113,23 @@ for asset_col in ('Close_SP500', 'Close_NASDAQ', 'Close_GOLD', 'Close_DXY'):
             ok(f"{asset_col} varies across last 5 weekdays (not frozen)")
 
 
+# CoinMetrics + Fear & Greed: daily-frequency sources should vary across the last 5 rows.
+# Unlike FRED (monthly), these publish daily — identical values for 5 days means the
+# source is down and ffill is propagating a stale value into model features.
+for daily_col, label in (
+    ('OnChain_Hash_Rate',          'CoinMetrics (Hash Rate)'),
+    ('Sentiment_BTC_index_value',  'Fear & Greed'),
+):
+    if daily_col not in df.columns:
+        warn(f"{daily_col} not in master_df — skipping freshness check")
+        continue
+    last5 = df[daily_col].dropna().iloc[-5:]
+    if len(last5) >= 5 and last5.nunique() == 1:
+        fail(f"{label} identical across last 5 rows ({last5.iloc[0]}) — source may be down, ffill propagating stale data")
+    else:
+        ok(f"{label} has varied in last 5 rows (source fresh)")
+
+
 # FRED macro: at least one of the 7 series should have changed in the last 45 days.
 # Individual rates can hold steady for months (e.g. Fed funds rate), but CPI, GDP,
 # unemployment, PCE etc. publish on different schedules — total silence across all
