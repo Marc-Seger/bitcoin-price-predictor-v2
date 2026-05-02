@@ -96,7 +96,11 @@ def fetch_yfinance(last_date: str) -> pd.DataFrame:
 
     result = pd.concat(frames, axis=1)
     result.index.name = 'date'
-    print(f'yfinance: fetched {len(result)} rows ({start} → {fetch_end}, includes 10-day lookback).')
+    fetched_assets = [a for a in TICKERS if f'Close_{a}' in result.columns]
+    skipped_assets = [a for a in TICKERS if a not in fetched_assets]
+    print(f'yfinance: fetched {len(result)} rows ({start} → {fetch_end}, includes 10-day lookback). Assets: {fetched_assets}')
+    if skipped_assets:
+        print(f'yfinance: WARNING — missing assets: {skipped_assets}')
     return result
 
 

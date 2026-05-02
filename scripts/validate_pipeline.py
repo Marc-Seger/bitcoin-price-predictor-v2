@@ -98,9 +98,9 @@ if 'Close_BTC' in df.columns and len(df) >= 3:
     else:
         ok("Close_BTC varies across last 3 rows (not frozen)")
 
-# SP500 / NASDAQ: check last 5 weekday rows aren't all identical
+# Non-BTC price columns: check last 5 weekday rows aren't all identical
 # (catches the case where the pipeline ran before market close and ffill locked in a stale value)
-for asset_col in ('Close_SP500', 'Close_NASDAQ'):
+for asset_col in ('Close_SP500', 'Close_NASDAQ', 'Close_GOLD', 'Close_DXY'):
     if asset_col not in df.columns:
         warn(f"{asset_col} not in master_df — skipping frozen-value check")
         continue
