@@ -136,6 +136,37 @@ def render():
         n_choice  = st.selectbox("Show", list(n_options.keys()), index=0, key='forecast_pred_log_n')
         display_log = log.iloc[::-1].head(n_options[n_choice])
 
+        # ── Mini KPI row ─────────────────────────────────────────────────────
+        resolved   = display_log[~display_log['pending']]
+        n_up       = int((display_log['direction'] == 'UP').sum())
+        n_down     = int((display_log['direction'] == 'DOWN').sum())
+        n_correct  = int(resolved['correct'].sum()) if not resolved.empty else 0
+        n_resolved = len(resolved)
+        sr_label   = f"{n_correct}/{n_resolved} — {n_correct/n_resolved*100:.0f}%" if n_resolved else "—"
+        avg_move   = display_log['predicted_return'].abs().mean()
+        avg_label  = f"{avg_move*100:.1f}%" if pd.notna(avg_move) else "—"
+
+        def _mini_kpi(label, value, color='#8899b4'):
+            return (
+                f"<div style='background:#171f30;border:1px solid #263354;border-radius:8px;"
+                f"padding:10px 14px;text-align:center;'>"
+                f"<div style='font-size:10px;text-transform:uppercase;letter-spacing:0.7px;"
+                f"color:#56657e;font-weight:600;margin-bottom:4px;'>{label}</div>"
+                f"<div style='font-size:17px;font-weight:700;color:{color};"
+                f"font-family:JetBrains Mono,monospace;'>{value}</div>"
+                f"</div>"
+            )
+
+        kpi_html = (
+            f"<div style='display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px;'>"
+            + _mini_kpi("↑ Up predictions",   str(n_up),   '#10b981')
+            + _mini_kpi("↓ Down predictions", str(n_down), '#f43f5e')
+            + _mini_kpi("Success rate",        sr_label,    '#3b82f6')
+            + _mini_kpi("Avg predicted move",  avg_label,   '#f59e0b')
+            + "</div>"
+        )
+        st.markdown(kpi_html, unsafe_allow_html=True)
+
         conf_colors = {'HIGH': '#10b981', 'MEDIUM': '#f59e0b', 'LOW': '#56657e'}
 
         def _result_cell(row):
@@ -165,7 +196,8 @@ def render():
                    'BTC at Pred.', 'BTC at d+7', 'Actual', 'Delta', 'Result']
         th = "".join(
             f"<th style='text-align:{'center' if h in ('Direction','Confidence','Result') else 'right' if h not in ('Date','Target d+7') else 'left'}"
-            f";color:#56657e;padding:6px 10px;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;'>{h}</th>"
+            f";color:#56657e;padding:6px 10px;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;"
+            f"background:#0f1520;position:sticky;top:0;z-index:1;'>{h}</th>"
             for h in headers
         )
 
@@ -194,10 +226,10 @@ def render():
             )
 
         st.markdown(
-            f"<div style='overflow-x:auto;'>"
+            f"<div style='overflow-x:auto;overflow-y:auto;max-height:420px;border-radius:8px;'>"
             f"<table style='width:100%;border-collapse:collapse;background:#171f30;"
-            f"border-radius:8px;font-family:JetBrains Mono,monospace;font-size:12px;'>"
-            f"<thead style='background:#0f1520;'><tr>{th}</tr></thead>"
+            f"font-family:JetBrains Mono,monospace;font-size:12px;'>"
+            f"<thead><tr>{th}</tr></thead>"
             f"<tbody>{body}</tbody></table></div>",
             unsafe_allow_html=True,
         )
