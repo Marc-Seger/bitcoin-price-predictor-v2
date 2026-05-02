@@ -27,8 +27,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install pandas numpy yfinance fredapi pytrends requests python-dotenv \
-                      xgboost scikit-learn joblib beautifulsoup4 lxml
+          pip install -r requirements.txt
 
       - name: Download master_df from latest release
         env:
