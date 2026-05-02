@@ -140,7 +140,7 @@ def load_predictions():
         return pd.DataFrame(), pd.DataFrame()
     preds = pd.read_csv(xgb_path, index_col=0, parse_dates=True)
     prices = pd.read_csv(MASTER_DF_PATH, index_col=0, parse_dates=True,
-                         usecols=['date', 'Close_BTC', 'High_BTC', 'Low_BTC'],
+                         usecols=['date', 'Open_BTC', 'Close_BTC', 'High_BTC', 'Low_BTC'],
                          low_memory=False)
     return preds, prices
 
@@ -232,22 +232,41 @@ def _execute_trade_record(pred_date, predicted_return: float, prices: pd.DataFra
     for day in future_dates:
         if day not in prices.index:
             continue
+        day_open  = prices.loc[day, 'Open_BTC']
         day_high  = prices.loc[day, 'High_BTC']
         day_low   = prices.loc[day, 'Low_BTC']
         day_close = prices.loc[day, 'Close_BTC']
 
-        if liq_trigger and day_low <= liq_trigger:
+        sl_hit  = bool(sl_trigger  and day_low  <= sl_trigger)
+        tp_hit  = bool(tp_trigger  and day_high >= tp_trigger)
+        liq_hit = bool(liq_trigger and day_low  <= liq_trigger)
+
+        if liq_hit and tp_hit:
+            # Same-candle conflict: use open direction as tiebreaker
+            if day_open >= actual_entry:
+                liq_hit = False  # opened above entry → TP likely hit first
+            else:
+                tp_hit = False
+
+        if sl_hit and tp_hit:
+            # Same-candle conflict: use open direction as tiebreaker
+            if day_open >= actual_entry:
+                sl_hit = False   # opened above entry → TP likely hit first
+            else:
+                tp_hit = False
+
+        if liq_hit:
             actual_exit = liq_trigger * (1 - slippage_pct)
             exit_date   = day
             exit_reason = f'LIQUIDATED at ${liq_trigger:,.0f}'
             liquidated  = True
             break
-        if sl_trigger and day_low <= sl_trigger:
+        if sl_hit:
             actual_exit = sl_trigger * (1 - slippage_pct)
             exit_date   = day
             exit_reason = f'Stop loss at ${sl_trigger:,.0f}'
             break
-        if tp_trigger and day_high >= tp_trigger:
+        if tp_hit:
             actual_exit = tp_trigger * (1 - slippage_pct)
             exit_date   = day
             exit_reason = f'Take profit at ${tp_trigger:,.0f}'
@@ -798,5 +817,7 @@ def render():
     st.info(
         f"Backtest period: **{start_date} → {date_to}** (full data: {date_from} → {date_to}) — "
         f"walk-forward predictions only (model trained on past data at each point). "
-        f"Fees: **{fees_pct*100:.2f}% per trade**.{reentry_note}"
+        f"Fees: **{fees_pct*100:.2f}% per trade**.{reentry_note} "
+        f"When both TP and SL are within the same daily candle, the open price determines which fired first "
+        f"(open ≥ entry → TP; open < entry → SL)."
     )
