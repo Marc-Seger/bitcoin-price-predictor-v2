@@ -130,20 +130,26 @@ for daily_col, label in (
         ok(f"{label} has varied in last 5 rows (source fresh)")
 
 
-# FRED macro: at least one of the 7 series should have changed in the last 45 days.
-# Individual rates can hold steady for months (e.g. Fed funds rate), but CPI, GDP,
-# unemployment, PCE etc. publish on different schedules — total silence across all
-# 7 columns for 45 days would indicate the API key is missing or FRED is unreachable.
+# FRED macro: find the last date any FRED column actually changed value.
+# Row-uniformity checks are unreliable here because master_df is daily but FRED series
+# are monthly/weekly — forward-fill legitimately produces long runs of identical rows.
+# Instead, we look at when values last changed across the full history and fail only if
+# it's been >60 days. M2 is weekly, so 60 days of total silence means the API is broken.
 fred_cols = [c for c in ['Macro_CPI', 'Macro_Interest_Rate', 'Macro_Unemployment_Rate',
                           'Macro_PCE', 'Macro_GDP', 'Macro_10Y_Treasury_Yield',
                           'Macro_M2_Money_Supply'] if c in df.columns]
 if fred_cols:
-    last45 = df[fred_cols].tail(45)
-    any_changed = any(last45[c].nunique() > 1 for c in fred_cols)
-    if not any_changed:
-        fail("All FRED macro columns identical across last 45 rows — API key may be missing or FRED unreachable")
+    changed_mask = df[fred_cols].ne(df[fred_cols].shift()).any(axis=1)
+    changed_dates = df.index[changed_mask]
+    if len(changed_dates) == 0:
+        fail("No FRED macro changes found in entire history — data may be corrupt")
     else:
-        ok("At least one FRED macro column has varied in last 45 rows (FRED data fresh)")
+        last_fred_change = changed_dates.max()
+        days_since = (date.today() - last_fred_change.date()).days
+        if days_since > 60:
+            fail(f"FRED macro last changed {days_since} days ago ({last_fred_change.date()}) — API key may be missing or FRED unreachable")
+        else:
+            ok(f"FRED macro last changed {days_since} days ago ({last_fred_change.date()})")
 
 
 # ─────────────────────────────────────────────
