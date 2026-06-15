@@ -74,8 +74,8 @@ jobs:
             '---' \
             '_Opened automatically by the Daily Data Update & Prediction workflow._')
 
-          EXISTING=$(gh issue list --label "data-quality" --state open --json number --jq length)
-          if [ "$EXISTING" -eq "0" ]; then
+          EXISTING_NUM=$(gh issue list --label "data-quality" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$EXISTING_NUM" ]; then
             gh issue create \
               --title "$TITLE" \
               --body "$BODY" \
@@ -85,7 +85,8 @@ jobs:
               --body "$BODY"
             echo "Data quality issue created."
           else
-            echo "Open data-quality issue already exists — skipping duplicate."
+            gh issue comment "$EXISTING_NUM" --body "$BODY"
+            echo "Commented on existing data-quality issue #$EXISTING_NUM."
           fi
 
       - name: Train production model

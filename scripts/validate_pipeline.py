@@ -133,8 +133,10 @@ for daily_col, label in (
 # FRED macro: find the last date any FRED column actually changed value.
 # Row-uniformity checks are unreliable here because master_df is daily but FRED series
 # are monthly/weekly — forward-fill legitimately produces long runs of identical rows.
-# Instead, we look at when values last changed across the full history and fail only if
-# it's been >60 days. M2 is weekly, so 60 days of total silence means the API is broken.
+# Instead, we look at when values last changed across the full history. GDP is quarterly
+# so 90 days of total silence is the maximum expected gap even when rates are frozen.
+# FRED columns are NOT in SELECTED_FEATURES so staleness is logged as a warning,
+# not a failure — it doesn't affect predictions and shouldn't block the upload.
 fred_cols = [c for c in ['Macro_CPI', 'Macro_Interest_Rate', 'Macro_Unemployment_Rate',
                           'Macro_PCE', 'Macro_GDP', 'Macro_10Y_Treasury_Yield',
                           'Macro_M2_Money_Supply'] if c in df.columns]
@@ -146,8 +148,8 @@ if fred_cols:
     else:
         last_fred_change = changed_dates.max()
         days_since = (date.today() - last_fred_change.date()).days
-        if days_since > 60:
-            fail(f"FRED macro last changed {days_since} days ago ({last_fred_change.date()}) — API key may be missing or FRED unreachable")
+        if days_since > 90:
+            warn(f"FRED macro last changed {days_since} days ago ({last_fred_change.date()}) — check FRED API key or rate limits (FRED not in model features, forward-fill continues)")
         else:
             ok(f"FRED macro last changed {days_since} days ago ({last_fred_change.date()})")
 

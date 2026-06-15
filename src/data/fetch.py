@@ -132,12 +132,24 @@ def fetch_fred(last_date: str) -> pd.DataFrame:
     frames = {}
 
     for col_name, series_id in FRED_SERIES.items():
-        try:
-            data = fred.get_series(series_id, observation_start=str(start), observation_end=str(end))
-            if not data.empty:
-                frames[col_name] = data
-        except Exception as e:
-            print(f'FRED: failed to fetch {series_id} — {e}')
+        for attempt in range(3):
+            try:
+                data = fred.get_series(series_id, observation_start=str(start), observation_end=str(end))
+                if not data.empty:
+                    frames[col_name] = data
+                time.sleep(1)  # stay under FRED rate limit (120 req/min)
+                break
+            except Exception as e:
+                msg = str(e)
+                if 'Too Many Requests' in msg or 'Rate Limit' in msg or '429' in msg:
+                    wait = (attempt + 1) * 15  # 15 → 30 → 45 s
+                    print(f'FRED: rate limited on {series_id} (attempt {attempt+1}/3), retrying in {wait}s...')
+                    time.sleep(wait)
+                    if attempt == 2:
+                        print(f'FRED: failed to fetch {series_id} after 3 attempts — {e}')
+                else:
+                    print(f'FRED: failed to fetch {series_id} — {e}')
+                    break
 
     if not frames:
         print('FRED: no new data.')
