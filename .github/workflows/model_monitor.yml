@@ -2,7 +2,7 @@ name: Weekly Model Health Monitor
 
 on:
   schedule:
-    # Run every Monday at 08:00 UTC (after daily pipeline at 07:00)
+    # Run every Monday at 08:00 UTC (daily pipeline runs at 22:00 UTC Sunday)
     - cron: '0 8 * * 1'
   workflow_dispatch:  # Allow manual trigger from GitHub UI
 
@@ -138,9 +138,8 @@ jobs:
           TITLE="[Model Monitor] Action required — $(date -u +%Y-%m-%d)"
           BODY=$(cat /tmp/issue_body.txt)
 
-          # Check if an open monitor issue already exists this week to avoid duplicates
-          EXISTING=$(gh issue list --label "model-monitor" --state open --json number --jq length)
-          if [ "$EXISTING" -eq "0" ]; then
+          EXISTING_NUM=$(gh issue list --label "model-monitor" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$EXISTING_NUM" ]; then
             gh issue create \
               --title "$TITLE" \
               --body "$BODY" \
@@ -150,7 +149,8 @@ jobs:
               --body "$BODY"
             echo "Issue created."
           else
-            echo "Open monitor issue already exists — skipping duplicate."
+            gh issue comment "$EXISTING_NUM" --body "$BODY"
+            echo "Commented on existing model-monitor issue #$EXISTING_NUM."
           fi
 
       - name: Print all-clear if no issues

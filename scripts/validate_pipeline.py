@@ -154,6 +154,31 @@ if fred_cols:
             ok(f"FRED macro last changed {days_since} days ago ({last_fred_change.date()})")
 
 
+# ETF flows: daily source — if the last 5 rows are all NaN the scraper is broken.
+etf_col = 'ETF_Flow_Total'
+if etf_col in df.columns:
+    last5_etf = df[etf_col].iloc[-5:]
+    if last5_etf.isna().all():
+        warn(f"ETF_Flow_Total is NaN for the last 5 rows — farside.co.uk scraper may be broken or HTML changed")
+    else:
+        ok(f"ETF_Flow_Total has data in recent rows (scraper healthy)")
+else:
+    warn("ETF_Flow_Total column missing from master_df — ETF flow fetch has never succeeded")
+
+
+# Google Trends: weekly source — identical values across 14+ consecutive rows means
+# no weekly update for 2+ cycles, i.e. pytrends is being rate-limited or blocked.
+gt_col = 'Sentiment_GT_Bitcoin'
+if gt_col in df.columns:
+    last14_gt = df[gt_col].dropna().iloc[-14:]
+    if len(last14_gt) >= 14 and last14_gt.nunique() == 1:
+        warn(f"Sentiment_GT_Bitcoin unchanged across last 14 rows — pytrends may be rate-limited by Google")
+    else:
+        ok(f"Sentiment_GT_Bitcoin has varied in recent rows (pytrends healthy)")
+else:
+    warn("Sentiment_GT_Bitcoin column missing from master_df — Google Trends fetch has never succeeded")
+
+
 # ─────────────────────────────────────────────
 # Check 3 — Value ranges
 # ─────────────────────────────────────────────

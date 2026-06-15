@@ -243,7 +243,11 @@ def fetch_google_trends(last_date: str) -> pd.DataFrame:
         df = pytrends.interest_over_time()
         time.sleep(1)  # avoid rate limiting
     except Exception as e:
-        print(f'Google Trends: fetch failed — {e}')
+        msg = str(e)
+        if 'Too Many Requests' in msg or '429' in msg or 'TooManyRequests' in type(e).__name__:
+            print(f'Google Trends: RATE LIMITED by Google — Sentiment_GT_Bitcoin will not update this run. {e}')
+        else:
+            print(f'Google Trends: fetch failed — {e}')
         return pd.DataFrame()
 
     if df.empty:

@@ -141,8 +141,8 @@ jobs:
             '---' \
             '_Opened automatically by the Daily Data Update & Prediction workflow._')
 
-          EXISTING=$(gh issue list --label "prediction-failure" --state open --json number --jq length)
-          if [ "$EXISTING" -eq "0" ]; then
+          EXISTING_NUM=$(gh issue list --label "prediction-failure" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$EXISTING_NUM" ]; then
             gh issue create \
               --title "$TITLE" \
               --body "$BODY" \
@@ -152,7 +152,8 @@ jobs:
               --body "$BODY"
             echo "Prediction failure issue created."
           else
-            echo "Open prediction-failure issue already exists — skipping duplicate."
+            gh issue comment "$EXISTING_NUM" --body "$BODY"
+            echo "Commented on existing prediction-failure issue #$EXISTING_NUM."
           fi
 
       - name: Upload updated master_df to release
@@ -168,10 +169,42 @@ jobs:
           }
 
       - name: Commit trade log and model
+        id: commit_push
         if: steps.validate.outcome == 'success'
+        continue-on-error: true
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add app/data/trade_log.csv models/xgboost_production.joblib 2>/dev/null || true
           git diff --staged --quiet || git commit -m "Daily prediction: $(date -u +%Y-%m-%d)"
-          git push || true
+          git push
+
+      - name: Alert if commit/push failed
+        if: steps.commit_push.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TITLE="[Pipeline] Git push failed — $(date -u +%Y-%m-%d)"
+          BODY=$(printf '%s\n' \
+            '## Pipeline Alert: Git push failed' \
+            '' \
+            "**Date**: $(date -u +%Y-%m-%d)" \
+            '' \
+            'The daily pipeline ran and made a prediction, but **failed to push** the updated `trade_log.csv` and model to the repository.' \
+            '' \
+            '**Impact**: predictions are not persisted; the trade log and model on the remote are one day behind.' \
+            '' \
+            '**Common causes**: token expiry, concurrent push conflict, or network error.' \
+            '' \
+            '**Action**: re-run the workflow manually from the Actions tab after checking permissions.' \
+            '' \
+            '---' \
+            '_Opened automatically by the Daily Data Update & Prediction workflow._')
+          EXISTING_NUM=$(gh issue list --label "data-quality" --state open --json number --jq '.[0].number // empty')
+          if [ -z "$EXISTING_NUM" ]; then
+            gh issue create --title "$TITLE" --body "$BODY" --label "data-quality"
+            echo "Push-failure issue created."
+          else
+            gh issue comment "$EXISTING_NUM" --body "$BODY"
+            echo "Commented on existing data-quality issue #$EXISTING_NUM."
+          fi
