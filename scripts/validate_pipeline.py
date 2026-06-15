@@ -166,13 +166,13 @@ else:
     warn("ETF_Flow_Total column missing from master_df — ETF flow fetch has never succeeded")
 
 
-# Google Trends: weekly source — identical values across 14+ consecutive rows means
-# no weekly update for 2+ cycles, i.e. pytrends is being rate-limited or blocked.
+# Google Trends: daily-resolution source (pytrends 90-day window returns daily data).
+# 7 consecutive identical values means the daily fetch has been failing for a full week.
 gt_col = 'Sentiment_GT_Bitcoin'
 if gt_col in df.columns:
-    last14_gt = df[gt_col].dropna().iloc[-14:]
-    if len(last14_gt) >= 14 and last14_gt.nunique() == 1:
-        warn(f"Sentiment_GT_Bitcoin unchanged across last 14 rows — pytrends may be rate-limited by Google")
+    last7_gt = df[gt_col].dropna().iloc[-7:]
+    if len(last7_gt) >= 7 and last7_gt.nunique() == 1:
+        warn(f"Sentiment_GT_Bitcoin unchanged across last 7 rows — pytrends likely rate-limited by Google")
     else:
         ok(f"Sentiment_GT_Bitcoin has varied in recent rows (pytrends healthy)")
 else:
