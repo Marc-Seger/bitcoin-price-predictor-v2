@@ -87,7 +87,12 @@ class TestFetchYfinanceDateMath:
             f"Expected end={expected_end}, got {captured.get('end')}"
         )
 
-    def test_start_is_last_date_minus_two(self):
+    def test_start_uses_ten_day_lookback(self):
+        """
+        fetch.py deliberately re-fetches the last 10 days so candles missed by an
+        earlier run (e.g. the pipeline fired before market close) self-heal on the
+        next run. Do not shorten this without a reason — see the Session 16 notes.
+        """
         last_date = (date.today() - timedelta(days=5)).isoformat()
         captured = {}
 
@@ -98,7 +103,7 @@ class TestFetchYfinanceDateMath:
         with patch('fetch.yf.download', side_effect=fake_download):
             fetch_yfinance(last_date)
 
-        expected_start = str((pd.to_datetime(last_date) - timedelta(days=2)).date())
+        expected_start = str((pd.to_datetime(last_date) - timedelta(days=10)).date())
         assert captured.get('start') == expected_start, (
             f"Expected start={expected_start}, got {captured.get('start')}"
         )
@@ -161,9 +166,22 @@ class TestAppendNewRows:
         result = append_new_rows(master, new_data)
         assert result.loc['2026-04-02', 'Close_BTC'] == pytest.approx(51000.0)
 
-    def test_real_value_in_master_not_overwritten(self):
+    def test_real_value_in_master_replaced_by_fresh_data(self):
+        """
+        merge uses overwrite=True (pandas default) on purpose. overwrite=False
+        silently refused to replace a forward-filled value with the real candle,
+        which froze SP500/NASDAQ for a week in April 2026.
+        """
         master = _make_df({'Close_BTC': [50000.0, 51000.0]}, ['2026-04-01', '2026-04-02'])
         new_data = _make_df({'Close_BTC': [99999.0]}, ['2026-04-02'])
+        result = append_new_rows(master, new_data)
+        assert result.loc['2026-04-02', 'Close_BTC'] == pytest.approx(99999.0)
+
+    def test_nan_in_new_data_never_overwrites_good_value(self):
+        """The other half of the overwrite=True contract: a failed fetch arriving
+        as NaN must not wipe a value master already holds."""
+        master = _make_df({'Close_BTC': [50000.0, 51000.0]}, ['2026-04-01', '2026-04-02'])
+        new_data = _make_df({'Close_BTC': [np.nan]}, ['2026-04-02'])
         result = append_new_rows(master, new_data)
         assert result.loc['2026-04-02', 'Close_BTC'] == pytest.approx(51000.0)
 

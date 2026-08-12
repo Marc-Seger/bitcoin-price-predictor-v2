@@ -36,12 +36,22 @@ BASELINE_PARAMS = {
 }
 
 
+# Keys stored alongside the hyperparameters as metadata. They must be stripped
+# before the dict is splatted into XGBRegressor, which only accepts real params.
+# `tuned_at` is how the weekly monitor knows the tuning date: file mtimes are
+# useless in CI, since actions/checkout rewrites every file on every run.
+METADATA_KEYS = ('tuned_at',)
+
+
 def load_params() -> dict:
     """Load tuned params if available, otherwise use baseline."""
     if os.path.exists(PARAMS_PATH):
         with open(PARAMS_PATH) as f:
             params = json.load(f)
-        print(f'Using tuned parameters from {PARAMS_PATH}')
+        tuned_at = params.get('tuned_at')
+        params = {k: v for k, v in params.items() if k not in METADATA_KEYS}
+        print(f'Using tuned parameters from {PARAMS_PATH}'
+              + (f' (tuned {tuned_at})' if tuned_at else ''))
         return params
 
     print('No tuned parameters found — using baseline params.')

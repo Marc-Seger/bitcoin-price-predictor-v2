@@ -16,6 +16,22 @@ from components import DARK_LAYOUT, styled_metric
 APP_DIR = os.path.join(os.path.dirname(__file__), '..')
 TRADE_LOG_PATH = os.path.join(APP_DIR, 'data', 'trade_log.csv')
 
+# Two walk-forward result files, and the difference between them is the point.
+#
+# LEAKY_WF is the original evaluation. It trained on df.iloc[:i] to predict row i,
+# but Target_Return_7d is close.shift(-7)/close - 1, so rows i-6..i-1 carried
+# targets computed from prices on days i..i+5. The model was trained on the answer.
+#
+# LEAKFREE_WF re-runs the identical evaluation with those 7 rows purged
+# (scripts/evaluate_leakfree.py). It is the number that matches reality: 48.5%
+# against a 52.6% baseline, which the live production log independently confirms.
+#
+# Everything on this page is computed from LEAKFREE_WF. LEAKY_WF appears only in
+# the comparison table, labelled as invalid, because deleting the mistake would
+# hide it.
+LEAKY_WF    = 'XGB_7d_walkforward_results.csv'
+LEAKFREE_WF = 'XGB_7d_walkforward_leakfree.csv'
+
 
 def load_results(filename: str) -> pd.DataFrame:
     path = os.path.join(RESULTS_DIR, filename)
@@ -45,8 +61,8 @@ def _build_prediction_log():
         except Exception:
             return float('nan')
 
-    # ── Walk-forward history ─────────────────────────────────────────────
-    wf_path = os.path.join(RESULTS_DIR, 'XGB_7d_walkforward_results.csv')
+    # ── Walk-forward history (leak-free — see the note at the top of the file) ──
+    wf_path = os.path.join(RESULTS_DIR, LEAKFREE_WF)
     if not os.path.exists(wf_path):
         wf = pd.DataFrame()
     else:
@@ -80,7 +96,9 @@ def _build_prediction_log():
     if not os.path.exists(TRADE_LOG_PATH):
         live = pd.DataFrame()
     else:
-        tl = pd.read_csv(TRADE_LOG_PATH, parse_dates=['prediction_date', 'target_date'])
+        # date_format='mixed' — see the note in predict.load_trade_log()
+        tl = pd.read_csv(TRADE_LOG_PATH, parse_dates=['prediction_date', 'target_date'],
+                         date_format='mixed')
         tl = tl.set_index('prediction_date')
         rows = []
         for pred_date, row in tl.iterrows():
@@ -139,43 +157,86 @@ def _build_prediction_log():
     return combined
 
 
+def _metrics(df: pd.DataFrame) -> tuple:
+    """Direction accuracy and R² over a set of non-overlapping windows."""
+    correct = ((df['actual'] > 0) == (df['predicted'] > 0)).mean()
+    ss_res = ((df['actual'] - df['predicted']) ** 2).sum()
+    ss_tot = ((df['actual'] - df['actual'].mean()) ** 2).sum()
+    return correct, 1 - ss_res / ss_tot
+
+
 def render():
     st.markdown("<h1 style='margin-bottom:4px;'>Model Performance</h1>", unsafe_allow_html=True)
-    st.caption("Walk-forward validation results — every prediction made without seeing future data.")
+    st.caption("Walk-forward validation results, and the audit that corrected them.")
+
+    st.error(
+        "**This model has no demonstrated edge.** The original evaluation reported "
+        "76.7% direction accuracy. It was wrong twice: overlapping windows were "
+        "counted as independent, and the walk-forward loop trained on rows whose "
+        "7-day targets were built from prices *after* the prediction date. Removing "
+        "the leak takes accuracy to **48.5%** and the correlation between prediction "
+        "and outcome from 0.77 to −0.03. The live log agrees. Every number below is "
+        "computed leak-free; the original is kept, labelled, for comparison."
+    )
 
     # ─── Model comparison table ───
     st.markdown("### Model Comparison")
     st.markdown(
-        "All models evaluated with walk-forward validation on 7-day returns. "
-        "Non-overlapping predictions (every 7th day) for honest metrics."
+        "All figures on non-overlapping 7-day windows. Reproduce with "
+        "`scripts/evaluate_leakfree.py`."
     )
 
-    xgb_path = os.path.join(RESULTS_DIR, 'XGB_7d_walkforward_results.csv')
-    if os.path.exists(xgb_path):
-        _r = pd.read_csv(xgb_path, index_col=0, parse_dates=True)
-        _r['correct'] = ((_r['actual'] > 0) == (_r['predicted'] > 0)).astype(int)
-        _no = _r.iloc[::7]
-        _r2 = 1 - ((_no['actual'] - _no['predicted'])**2).sum() / ((_no['actual'] - _no['actual'].mean())**2).sum()
-        _naive = (_r['actual'] > 0).mean()
-        summary = pd.DataFrame([{
-            'Model': 'XGBoost (tuned)', 'Target': '7-day return',
-            'R²': round(_r2, 3),
-            'Direction Accuracy': f"{_r['correct'].mean():.1%}",
+    leakfree_path = os.path.join(RESULTS_DIR, LEAKFREE_WF)
+    leaky_path = os.path.join(RESULTS_DIR, LEAKY_WF)
+
+    if os.path.exists(leakfree_path):
+        _lf = pd.read_csv(leakfree_path, index_col=0, parse_dates=True)
+        _lf_acc, _lf_r2 = _metrics(_lf)
+        _naive = (_lf['actual'] > 0).mean()
+
+        rows = [{
+            'Model': 'XGBoost (leak-free)', 'Target': '7-day return',
+            'R²': round(_lf_r2, 3),
+            'Direction Accuracy': f"{_lf_acc:.1%}",
             'Naive Baseline': f"{_naive:.1%}",
-            'Predictions': len(_no),
-            'Data range': f"{_r.index.min().date()} → {_r.index.max().date()}",
-        }, {
+            'Predictions': len(_lf),
+            'Data range': f"{_lf.index.min().date()} → {_lf.index.max().date()}",
+        }]
+
+        # The original, kept visible on purpose. Hiding a retracted number is just
+        # a quieter version of the mistake that produced it.
+        if os.path.exists(leaky_path):
+            _lk = pd.read_csv(leaky_path, index_col=0, parse_dates=True)
+            _lk_no = _lk.iloc[::7]
+            _lk_acc, _lk_r2 = _metrics(_lk_no)
+            rows.append({
+                'Model': 'XGBoost (original, INVALID)', 'Target': '7-day return',
+                'R²': round(_lk_r2, 3),
+                'Direction Accuracy': f"{_lk_acc:.1%}",
+                'Naive Baseline': f"{_naive:.1%}",
+                'Predictions': len(_lk_no),
+                'Data range': 'target leakage — retracted',
+            })
+
+        # Deep-learning figures are static: they come from evaluate_dl.py, which
+        # already purged the 7 peeking rows. That is exactly why the original
+        # comparison was unfair — the networks ran the honest race, XGBoost did not.
+        rows += [{
             'Model': 'LSTM', 'Target': '7-day return',
             'R²': -1.14, 'Direction Accuracy': '50.0%',
             'Naive Baseline': f"{_naive:.1%}", 'Predictions': 74,
-            'Data range': '2022–2025 only',
+            'Data range': '2022–2025, leak-free',
         }, {
             'Model': 'GRU', 'Target': '7-day return',
             'R²': -2.01, 'Direction Accuracy': '54.1%',
             'Naive Baseline': f"{_naive:.1%}", 'Predictions': 74,
-            'Data range': '2022–2025 only',
-        }])
-        model_colors = {'XGBoost (tuned)': '#3b82f6', 'LSTM': '#56657e', 'GRU': '#56657e'}
+            'Data range': '2022–2025, leak-free',
+        }]
+        summary = pd.DataFrame(rows)
+        model_colors = {
+            'XGBoost (leak-free)': '#3b82f6',
+            'XGBoost (original, INVALID)': '#f43f5e',
+        }
         for _, row in summary.iterrows():
             color = model_colors.get(row['Model'], '#56657e')
             r2_val = float(row['R²'])
@@ -213,29 +274,30 @@ def render():
 
     st.markdown("---")
 
-    # ─── XGBoost deep dive ───
-    st.markdown("### XGBoost 7-Day Predictions vs Actual")
+    # ─── XGBoost deep dive (leak-free) ───
+    st.markdown("### XGBoost 7-Day Predictions vs Actual (leak-free)")
 
-    xgb = load_results('XGB_7d_walkforward_results.csv')
+    xgb = load_results(LEAKFREE_WF)
     if xgb.empty:
-        st.warning("No XGBoost 7-day results found.")
+        st.warning("No leak-free results found. Run `scripts/evaluate_leakfree.py`.")
         return
 
-    # KPI summary
+    # The leak-free file is already one row per non-overlapping window, so there
+    # is no iloc[::7] step here and no way to mix window counts with daily counts.
     xgb['correct'] = ((xgb['actual'] > 0) == (xgb['predicted'] > 0)).astype(int)
-    non_overlap = xgb.iloc[::7]
-    r2 = 1 - ((non_overlap['actual'] - non_overlap['predicted'])**2).sum() / ((non_overlap['actual'] - non_overlap['actual'].mean())**2).sum()
-    dir_acc = non_overlap['correct'].mean()
+    dir_acc, r2 = _metrics(xgb)
+    naive_acc = (xgb['actual'] > 0).mean()
 
     cols = st.columns(4)
     with cols[0]:
-        styled_metric("R-squared", f"{r2:.3f}", color='blue')
+        styled_metric("R-squared", f"{r2:.3f}", color='rose' if r2 < 0 else 'blue')
     with cols[1]:
-        styled_metric("Direction Accuracy", f"{dir_acc:.1%}", color='emerald')
+        styled_metric("Direction Accuracy", f"{dir_acc:.1%}",
+                      color='emerald' if dir_acc > naive_acc else 'rose')
     with cols[2]:
-        styled_metric("Total Predictions", f"{len(xgb):,}", color='violet')
+        styled_metric("Naive Baseline", f"{naive_acc:.1%}", color='violet')
     with cols[3]:
-        styled_metric("Non-overlapping", f"{len(non_overlap)}", color='amber')
+        styled_metric("Independent Windows", f"{len(xgb)}", color='amber')
 
     st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 
@@ -255,9 +317,10 @@ def render():
 
     # ─── Rolling direction accuracy ───
     st.markdown("### Rolling Direction Accuracy")
-    st.caption("30-day rolling window — shows how accuracy varies over time.")
+    st.caption("26-window rolling average (~6 months) — each point is one independent "
+               "7-day window, so this tracks the coin-flip line rather than sitting above it.")
 
-    rolling_acc = xgb['correct'].rolling(30).mean()
+    rolling_acc = xgb['correct'].rolling(26).mean()
     fig_roll = go.Figure()
     fig_roll.add_trace(go.Scatter(
         x=rolling_acc.index, y=rolling_acc.values,
@@ -299,12 +362,17 @@ def render():
     phase_stats = []
     for phase in sorted(xgb['phase'].unique()):
         data = xgb[xgb['phase'] == phase]
+        # "Avg Weekly BTC Return" describes the market in that phase, not the model.
+        # It was previously labelled "Avg Return", which read as model performance.
+        # R² is the real thing, not squared correlation — squaring hides the sign,
+        # so a model fitting worse than the mean would still show a tidy positive number.
+        acc, r2 = _metrics(data)
         phase_stats.append({
             'Phase': phase,
-            'Predictions': len(data),
-            'Avg Return': f"{data['actual'].mean():.2%}",
-            'Direction Accuracy': f"{data['correct'].mean():.1%}",
-            'R²': f"{np.corrcoef(data['actual'], data['predicted'])[0,1]**2:.3f}",
+            'Windows': len(data),
+            'Avg Weekly BTC Return': f"{data['actual'].mean():.2%}",
+            'Direction Accuracy': f"{acc:.1%}",
+            'R²': f"{r2:.3f}",
         })
 
     st.dataframe(pd.DataFrame(phase_stats), use_container_width=True, hide_index=True)
@@ -314,8 +382,11 @@ def render():
     # ─── Confidence vs accuracy ───
     st.markdown("### Confidence vs Accuracy")
     st.markdown(
-        "When the model predicts a **larger move**, it's significantly more accurate. "
-        "High-confidence predictions are much more reliable."
+        "The original evaluation showed accuracy climbing to ~90% on the largest "
+        "predicted moves, and that became the app's headline claim. It was the leak: "
+        "leak-free, the same bucket sits at ~44%, below the smallest-move bucket. "
+        "**Predicted move size carries no information about whether the call is right.** "
+        "The live log shows the same thing."
     )
 
     xgb['abs_pred'] = xgb['predicted'].abs()
@@ -366,23 +437,22 @@ def render():
 
         streak_n, streak_win = _streak(resolved)
 
-        # Walk-forward non-overlapping accuracy from CSV (historical baseline)
+        # Historical baseline: leak-free walk-forward, already one row per
+        # independent window (no iloc[::7] needed).
         _wf_acc_val, _wf_n_val = None, 0
-        _wf_path = os.path.join(RESULTS_DIR, 'XGB_7d_walkforward_results.csv')
+        _wf_path = os.path.join(RESULTS_DIR, LEAKFREE_WF)
         if os.path.exists(_wf_path):
             _wf = pd.read_csv(_wf_path, index_col=0, parse_dates=True)
-            _wf['correct'] = ((_wf['actual'] > 0) == (_wf['predicted'] > 0)).astype(int)
-            _wf_no = _wf.iloc[::7]
-            _wf_acc_val = _wf_no['correct'].mean()
-            _wf_n_val   = len(_wf_no)
+            _wf_acc_val = ((_wf['actual'] > 0) == (_wf['predicted'] > 0)).mean()
+            _wf_n_val   = len(_wf)
 
         kpi_cols = st.columns(5)
         with kpi_cols[0]:
             if _wf_acc_val is not None:
-                styled_metric("Walk-Forward Accuracy", f"{_wf_acc_val:.1%}",
-                              f"{_wf_n_val:,} windows (historical)", color='blue')
+                styled_metric("Backtest (leak-free)", f"{_wf_acc_val:.1%}",
+                              f"{_wf_n_val:,} independent windows", color='blue')
             else:
-                styled_metric("Walk-Forward Accuracy", "—", color='blue')
+                styled_metric("Backtest (leak-free)", "—", color='blue')
         with kpi_cols[1]:
             overall_acc = resolved['correct'].mean() if len(resolved) > 0 else 0
             styled_metric("All-Time Accuracy", f"{overall_acc:.1%}",

@@ -1,0 +1,41 @@
+name: Tests
+
+# Runs on every push and pull request, not on a schedule. The point is to fail
+# at the moment code is broken, while the change is still fresh, rather than
+# hours later inside the daily data job — which asks a different question
+# ("is today's data OK?") and would mix the two signals together.
+#
+# These tests existed for months without ever being executed. Two of them had
+# quietly gone stale against deliberate pipeline changes and nobody knew,
+# because nothing ran them. Untriggered tests protect nothing.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: pytest tests/ -q

@@ -20,6 +20,7 @@ import os
 import sys
 import json
 import time
+from datetime import date
 import optuna
 import pandas as pd
 import numpy as np
@@ -143,6 +144,10 @@ def main():
     best = study.best_params
     best['verbosity'] = 0
     best['random_state'] = 42
+    # Metadata, not a hyperparameter. train_production.py strips it before use.
+    # The weekly monitor reads this to know the retune age — file mtimes can't be
+    # used, since actions/checkout rewrites every file on every CI run.
+    best['tuned_at'] = date.today().isoformat()
     print(f'\nBest R² (non-overlapping): {study.best_value:.4f}')
     print(f'Best parameters:')
     for k, v in best.items():

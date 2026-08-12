@@ -186,7 +186,14 @@ st.sidebar.markdown(
 )
 st.sidebar.markdown("---")
 
-PAGES = ["Dashboard", "Forecast", "Strategy Lab", "Model Performance", "Documentation"]
+PAGES = ["Dashboard", "Forecast", "Model Performance", "Documentation"]
+
+# "Strategy Lab" is deliberately absent. Its backtests are driven by
+# XGB_7d_walkforward_results.csv, which the August 2026 audit showed was produced
+# with target leakage — every equity curve it draws is built on predictions that
+# saw the future. The page is unlinked rather than deleted: strategy_lab.py is
+# untouched, its route below is intact, and adding the string back to this list
+# restores it. Rebuild it on leak-free predictions before doing that.
 
 # Persist selected page across refreshes via URL query param
 _qp = st.query_params.get("page", "Dashboard")
@@ -214,6 +221,9 @@ if page == "Dashboard":
 elif page == "Forecast":
     from forecast import render
 elif page == "Strategy Lab":
+    # Unreachable while "Strategy Lab" is absent from PAGES. Kept so restoring the
+    # page is a one-line change (a stale ?page=Strategy+Lab URL falls back to
+    # Dashboard, since _default_idx ignores values not in PAGES).
     from strategy_lab import render
 elif page == "Model Performance":
     from performance import render

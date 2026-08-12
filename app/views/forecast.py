@@ -99,16 +99,21 @@ def render():
             """
             The model uses **XGBoost** trained on 52 features across 5 asset classes
             (BTC, S&P 500, NASDAQ, Gold, Dollar Index) plus on-chain metrics and
-            sentiment data.
+            sentiment data, retrained daily on the full history.
 
-            Walk-forward validated on **8 years of data (2018–2026)** across multiple
-            market regimes: **76.7% direction accuracy** vs 52% naive baseline (always
-            predict UP). High-confidence predictions (>5% predicted move) reach even
-            higher accuracy across 2,467 historical windows.
+            **This model has no demonstrated edge.** An August 2026 audit found target
+            leakage in the original walk-forward evaluation: it trained on rows whose
+            7-day targets were computed from prices after the prediction date. Removing
+            the leak takes direction accuracy from 73.3% to **48.5%**, against a 52.6%
+            always-up baseline. The live log agrees. See **Model Performance** for both
+            sets of numbers and **Documentation** for the full methodology.
 
-            **Confidence** reflects the size of the predicted return — when the model
-            sees strong aligned signals it predicts a large move and is more accurate.
-            When signals are mixed it hedges toward zero (LOW confidence, ~coin flip).
+            **Confidence** reflects the size of the predicted return, not the model's
+            reliability. The apparent link between large predicted moves and higher
+            accuracy was an artifact of the same leak.
+
+            Predictions are published as a live record of an open experiment. They are
+            not forecasts to act on, and not financial advice.
             """
         )
 

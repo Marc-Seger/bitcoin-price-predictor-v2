@@ -1,4 +1,4 @@
-name: Weekly Model Health Monitor
+name: Weekly Pipeline Health Monitor
 
 on:
   schedule:
@@ -37,70 +37,142 @@ jobs:
           import os
           from datetime import datetime, timezone
 
+          # ─────────────────────────────────────────────────────────────────────
+          # This job used to ask "is the model still accurate?". That question is
+          # settled: an audit in August 2026 found target leakage in the original
+          # walk-forward evaluation. With the leak removed the model sits at ~48%
+          # direction accuracy, and the live log agrees (~49%). It has no edge, and
+          # alerting on that every week would be permanent noise.
+          #
+          # So the job now asks "is the machinery still working?" — data arriving,
+          # predictions being logged, params not ancient. Accuracy is REPORTED as a
+          # number, and only alerts if it moves far from ~50% in EITHER direction:
+          # a sudden jump is far more likely to be a new leak than a real discovery.
+          #
+          # Rule for every check below: a check that cannot RUN must raise an alert,
+          # never a silent note. The previous version appended failures to `details`
+          # (informational) instead of `issues` (alerting), so when a date-parsing
+          # error killed the trade log reads in March 2026, the job reported "all
+          # clear" every week for five months with a green checkmark.
+          # ─────────────────────────────────────────────────────────────────────
+
           issues = []
           details = []
           today = datetime.now(timezone.utc)
+          today_naive = pd.Timestamp(today).tz_localize(None)
 
-          # ── 1. Trade log: rolling 30-day direction accuracy ──────────────────
-          trade_log_path = "app/data/trade_log.csv"
+          TRADE_LOG = "app/data/trade_log.csv"
+          PARAMS    = "results/tuning/xgboost_best_params_v2.json"
+
+          # Accuracy is expected to sit near the 50% coin-flip line. Outside this
+          # band (with enough samples) means something changed mechanically —
+          # a leak, a sign flip, a broken join — not that the model got smart.
+          ACC_LOW, ACC_HIGH, ACC_MIN_N = 0.30, 0.70, 20
+          STALE_DAYS      = 3    # no prediction logged in this many days
+          CADENCE_WINDOW  = 14   # look back this far...
+          CADENCE_MIN     = 7    # ...and expect at least this many predictions
+          RETUNE_MAX_DAYS = 90
+
+
+          def read_trade_log():
+              """
+              format='mixed' is deliberate. One legacy row (2026-03-28) stores its
+              date as '2026-03-28 00:00:00' while every other row is plain
+              '2026-04-16'. Pandas infers the format from the first value and then
+              raises on the rest. That single inconsistency, left behind by a manual
+              repair, is what silently disabled this entire workflow.
+              """
+              tl = pd.read_csv(TRADE_LOG)
+              for col in ("prediction_date", "target_date"):
+                  if col in tl.columns:
+                      tl[col] = pd.to_datetime(tl[col], format="mixed")
+              return tl
+
+
+          # ── 1. Pipeline liveness: is the daily job still logging predictions? ──
           try:
-              tl = pd.read_csv(trade_log_path, parse_dates=["prediction_date", "target_date"])
-              # Only rows where outcome is known (actual_return filled)
-              resolved = tl.dropna(subset=["actual_return", "correct"])
-              resolved = resolved.sort_values("prediction_date")
-
-              if len(resolved) >= 10:
-                  last30 = resolved[
-                      pd.to_datetime(resolved["target_date"]) >= (today - pd.Timedelta(days=30))
-                  ]
-                  if len(last30) >= 5:
-                      rolling_acc = last30["correct"].mean()
-                      naive_acc = (resolved["actual_return"] > 0).mean()
-                      details.append(f"Rolling 30d direction accuracy: {rolling_acc:.1%} (naive baseline: {naive_acc:.1%})")
-                      if rolling_acc < naive_acc:
-                          issues.append(
-                              f"**Direction accuracy dropped below naive baseline**: "
-                              f"{rolling_acc:.1%} vs {naive_acc:.1%} naive. "
-                              f"Consider retuning the model."
-                          )
-                  else:
-                      details.append(f"Rolling 30d accuracy: only {len(last30)} resolved predictions in last 30 days — not enough to evaluate")
+              tl = read_trade_log()
+              if len(tl) == 0:
+                  issues.append("**Trade log is empty** — no predictions have ever been logged.")
               else:
-                  details.append(f"Trade log: only {len(resolved)} resolved predictions total — need ≥10 to evaluate accuracy")
-          except Exception as e:
-              details.append(f"Trade log check failed: {e}")
-
-          # ── 2. Days since last retune ─────────────────────────────────────────
-          params_path = "results/tuning/xgboost_best_params_v2.json"
-          try:
-              mtime = os.path.getmtime(params_path)
-              last_tuned = datetime.fromtimestamp(mtime, tz=timezone.utc)
-              days_since = (today - last_tuned).days
-              details.append(f"Days since last retune: {days_since}d (last: {last_tuned.strftime('%Y-%m-%d')})")
-              if days_since > 90:
-                  issues.append(
-                      f"**Model params are {days_since} days old** (threshold: 90 days). "
-                      f"Consider running `tune_xgboost.py` to refresh hyperparameters."
-                  )
-          except Exception as e:
-              details.append(f"Retune date check failed: {e}")
-
-          # ── 3. Trade log staleness (daily pipeline health proxy) ──────────────
-          try:
-              tl2 = pd.read_csv(trade_log_path, parse_dates=["prediction_date"])
-              if len(tl2) > 0:
-                  last_pred = pd.to_datetime(tl2["prediction_date"]).max()
-                  days_stale = (today - last_pred.tz_localize("UTC")).days
+                  last_pred = tl["prediction_date"].max()
+                  days_stale = (today_naive - last_pred).days
                   details.append(f"Last prediction logged: {last_pred.date()} ({days_stale}d ago)")
-                  if days_stale > 3:
+                  if days_stale > STALE_DAYS:
                       issues.append(
-                          f"**No new prediction in {days_stale} days** — daily pipeline may be failing. "
-                          f"Check the 'Daily Data Update & Prediction' workflow for errors."
+                          f"**No new prediction in {days_stale} days** — the daily pipeline may be failing. "
+                          f"Check the 'Daily Data Update & Prediction' workflow."
                       )
-              else:
-                  details.append("Trade log is empty — no predictions logged yet")
+
+                  # Cadence: catches the partial case where the job runs but quietly
+                  # skips most days (validation gate failing, dedup, stale features).
+                  recent = tl[tl["prediction_date"] >= (today_naive - pd.Timedelta(days=CADENCE_WINDOW))]
+                  details.append(f"Predictions in last {CADENCE_WINDOW}d: {len(recent)}")
+                  if len(recent) < CADENCE_MIN:
+                      issues.append(
+                          f"**Only {len(recent)} predictions in the last {CADENCE_WINDOW} days** "
+                          f"(expected at least {CADENCE_MIN}). The pipeline is running but skipping days."
+                      )
           except Exception as e:
-              details.append(f"Pipeline staleness check failed: {e}")
+              issues.append(f"**Pipeline liveness check could not run**: `{type(e).__name__}: {e}`")
+
+          # ── 2. Accuracy: reported always, alerts only on a suspicious move ─────
+          try:
+              tl = read_trade_log()
+              resolved = tl.dropna(subset=["actual_return", "correct"]).sort_values("prediction_date")
+
+              if len(resolved) < 10:
+                  details.append(f"Accuracy: only {len(resolved)} resolved predictions — need 10+ to report")
+              else:
+                  all_acc = resolved["correct"].mean()
+                  naive   = (resolved["actual_return"] > 0).mean()
+                  last30  = resolved[resolved["target_date"] >= (today_naive - pd.Timedelta(days=30))]
+                  details.append(
+                      f"Live accuracy: {all_acc:.1%} all-time over {len(resolved)} resolved "
+                      f"(naive always-up: {naive:.1%})"
+                  )
+                  if len(last30) >= 5:
+                      details.append(f"Live accuracy: {last30['correct'].mean():.1%} over last 30d ({len(last30)} resolved)")
+
+                  # Expected state is ~50%. Flag large deviations in either direction.
+                  if len(resolved) >= ACC_MIN_N:
+                      if all_acc > ACC_HIGH:
+                          issues.append(
+                              f"**Accuracy jumped to {all_acc:.1%}** over {len(resolved)} predictions. "
+                              f"This model has no established edge, so a result this good is more likely "
+                              f"a data leak or a join bug than a genuine improvement. Investigate before celebrating."
+                          )
+                      elif all_acc < ACC_LOW:
+                          issues.append(
+                              f"**Accuracy collapsed to {all_acc:.1%}** over {len(resolved)} predictions. "
+                              f"Consistently worse than chance usually means an inverted sign or a misaligned join."
+                          )
+          except Exception as e:
+              issues.append(f"**Accuracy check could not run**: `{type(e).__name__}: {e}`")
+
+          # ── 3. Retune age ─────────────────────────────────────────────────────
+          # Read from a `tuned_at` field committed inside the params file. The old
+          # version used os.path.getmtime(), which in Actions only ever measures the
+          # checkout time — every file looks seconds old, so this never fired.
+          try:
+              with open(PARAMS) as f:
+                  params = json.load(f)
+              tuned_at = params.get("tuned_at")
+              if not tuned_at:
+                  issues.append(
+                      f"**No `tuned_at` field in {PARAMS}** — retune age cannot be determined. "
+                      f"Add it when saving tuned parameters."
+                  )
+              else:
+                  days_since = (today_naive - pd.Timestamp(tuned_at)).days
+                  details.append(f"Days since last retune: {days_since}d (tuned {tuned_at})")
+                  if days_since > RETUNE_MAX_DAYS:
+                      issues.append(
+                          f"**Model params are {days_since} days old** (threshold: {RETUNE_MAX_DAYS}). "
+                          f"Consider running `tune_xgboost.py`, and note the known methodology fixes first."
+                      )
+          except Exception as e:
+              issues.append(f"**Retune age check could not run**: `{type(e).__name__}: {e}`")
 
           # ── Output for next step ──────────────────────────────────────────────
           has_issues = len(issues) > 0
@@ -108,14 +180,14 @@ jobs:
               f.write(f"has_issues={'true' if has_issues else 'false'}\n")
 
           issue_body = "\n\n".join([
-              "## Weekly Model Health Report",
+              "## Weekly Pipeline Health Report",
               f"**Date**: {today.strftime('%Y-%m-%d')}",
               "### Checks",
-              "\n".join(f"- {d}" for d in details),
+              "\n".join(f"- {d}" for d in details) if details else "- (no checks reported)",
               "### Action Required" if has_issues else "### Status: All Clear",
               ("\n".join(f"- {i}" for i in issues)) if has_issues else "No action needed this week.",
               "---",
-              "_Opened automatically by the Weekly Model Health Monitor workflow._"
+              "_Opened automatically by the Weekly Pipeline Health Monitor workflow._"
           ])
 
           with open("/tmp/issue_body.txt", "w") as f:
@@ -125,9 +197,11 @@ jobs:
           for d in details:
               print(f"  {d}")
           if has_issues:
-              print(f"\n⚠️  {len(issues)} issue(s) found — will open GitHub Issue")
+              print(f"\n{len(issues)} issue(s) found - will open GitHub Issue")
+              for i in issues:
+                  print(f"  - {i}")
           else:
-              print("\n✅ All checks passed")
+              print("\nAll checks passed")
           EOF
 
       - name: Open GitHub Issue if action needed
@@ -135,7 +209,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TITLE="[Model Monitor] Action required — $(date -u +%Y-%m-%d)"
+          TITLE="[Pipeline Monitor] Action required — $(date -u +%Y-%m-%d)"
           BODY=$(cat /tmp/issue_body.txt)
 
           EXISTING_NUM=$(gh issue list --label "model-monitor" --state open --json number --jq '.[0].number // empty')
@@ -155,4 +229,4 @@ jobs:
 
       - name: Print all-clear if no issues
         if: steps.checks.outputs.has_issues == 'false'
-        run: echo "✅ All health checks passed. No GitHub Issue needed."
+        run: echo "All health checks passed. No GitHub Issue needed."

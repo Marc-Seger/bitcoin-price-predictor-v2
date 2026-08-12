@@ -114,7 +114,15 @@ def predict_current() -> dict:
 def load_trade_log() -> pd.DataFrame:
     """Load the paper trading log, or create an empty one."""
     if os.path.exists(TRADE_LOG_PATH):
-        return pd.read_csv(TRADE_LOG_PATH, parse_dates=['prediction_date', 'target_date'])
+        # format='mixed': a hand-repaired row once stored its date with a time
+        # component while every other row was date-only. Pandas infers the format
+        # from the first value and raises on the rest — that single inconsistency
+        # silently disabled the weekly monitor for five months.
+        return pd.read_csv(
+            TRADE_LOG_PATH,
+            parse_dates=['prediction_date', 'target_date'],
+            date_format='mixed',
+        )
     return pd.DataFrame(columns=[
         'prediction_date', 'target_date', 'predicted_return', 'direction',
         'confidence', 'btc_price_at_prediction', 'predicted_price',
