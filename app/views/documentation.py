@@ -23,10 +23,15 @@ def render():
         ### Pages
 
         **1. Financial Dashboard**
-        Browse BTC price charts with technical indicators (SMA, Bollinger Bands, RSI, MACD),
-        sentiment data (Fear & Greed Index, Google Trends, ETF flows), on-chain metrics,
-        and cross-asset correlations vs S&P 500, NASDAQ, Gold, and the Dollar Index.
-        Use the timeframe selector and indicator toggles to customize your view.
+        Price charts with overlay indicators (SMA, Bollinger Bands, RSI, MACD) and a timeframe
+        selector. For BTC there are also Sentiment and On-Chain tabs; every asset gets
+        Cross-Asset comparisons against S&P 500, NASDAQ, Gold and the Dollar Index.
+
+        Two things to know. The **ETF flows chart is empty after 1 May 2026** — the source
+        blocks datacenter IPs, see the Data Sources tab. And a **Technical Analysis tab
+        (support/resistance zones, Fibonacci retracements, pivot points) was removed in August
+        2026** — those are chart-drawing tools rather than analysis, and they did not earn their
+        place next to the rest.
 
         **2. 7-Day Forecast**
         The model's current prediction: will BTC go up or down over the next 7 days?
