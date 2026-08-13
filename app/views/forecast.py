@@ -73,15 +73,22 @@ def render():
     with col_left:
         st.markdown("### Prediction Details")
 
-        confidence_colors = {'HIGH': 'emerald', 'MEDIUM': 'amber', 'LOW': 'rose'}
+        # These used to read "HIGH — 66% accuracy across 586 predictions", which came from
+        # the leaky evaluation and had the ranking backwards. Leak-free, the largest-move
+        # bucket is the WORST of the three, and all three sit below the 52.6% naive
+        # baseline. Predicted move size carries no information about whether the call is
+        # right, so the colours are deliberately uniform: none of these is "good".
         confidence_descriptions = {
-            'HIGH': 'Model predicts >5% move — 66% direction accuracy across 586 historical predictions',
-            'MEDIUM': 'Model predicts 2–5% move — 53% accuracy, modest edge over baseline',
-            'LOW': 'Model predicts <2% move — near coin-flip (51%). Model sees no strong signal.',
+            'HIGH':   'Model predicts a >5% move. Leak-free this bucket is right 44.9% of the '
+                      'time across 98 independent windows — the worst of the three.',
+            'MEDIUM': 'Model predicts a 2–5% move. Leak-free: 48.8% across 121 independent windows.',
+            'LOW':    'Model predicts a <2% move. Leak-free: 50.7% across 148 independent windows.',
         }
 
         conf = prediction['confidence']
-        conf_color = {'HIGH': '#10b981', 'MEDIUM': '#f59e0b', 'LOW': '#f43f5e'}[conf]
+        # Uniform muted colour — a green HIGH badge would imply a reliability this label
+        # does not carry. It describes predicted magnitude, nothing more.
+        conf_color = '#8899b4'
         st.markdown(
             f"<span style='color:{conf_color};font-weight:700;font-family:JetBrains Mono,monospace;'>"
             f"Confidence: {conf}</span>",
@@ -122,7 +129,7 @@ def render():
     # ─── Prediction log ──────────────────────────────────────────────────────
     st.markdown("### Prediction Log")
     st.caption(
-        "Every prediction the model has made — walk-forward historical (2019 → early 2026) "
+        "Every prediction the model has made: leak-free walk-forward history (2019 → mid-2026) "
         "plus live production predictions (March 2026 → now).<br>"
         "<span style='color:#3b82f6;'>●</span> = live &nbsp; ⏳ = pending &nbsp; ✅ = correct &nbsp; ❌ = wrong",
         unsafe_allow_html=True,

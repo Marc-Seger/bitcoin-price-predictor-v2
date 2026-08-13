@@ -406,10 +406,31 @@ def render():
 
         # ETF Flows
         st.markdown("### Bitcoin ETF Daily Flows")
-        st.caption("Net institutional inflow/outflow across all spot Bitcoin ETFs ($M). Available from Jan 2024.")
         etf_col = COL_ETF_FLOW
         if etf_col in df.columns:
-            etf_data = df[etf_col].dropna().tail(sent_n)
+            # dropna() here means the chart plots the last N *available* values, which
+            # silently renders months-old data as if it were current once a source dies.
+            # The farside.co.uk scraper has been returning 403 since ~April 2026 (the site
+            # blocks datacenter IPs, so it fails from GitHub Actions but works from a
+            # laptop). Say so rather than quietly showing stale bars.
+            etf_series = df[etf_col].dropna()
+            last_etf = etf_series.index.max() if not etf_series.empty else None
+            stale_days = (df.index.max() - last_etf).days if last_etf is not None else None
+
+            if stale_days is not None and stale_days > 7:
+                st.warning(
+                    f"**This chart stopped updating on {last_etf.strftime('%d %B %Y')}** "
+                    f"({stale_days} days ago). The upstream source, farside.co.uk, blocks "
+                    f"datacenter IP ranges, so the daily fetch returns 403 from GitHub "
+                    f"Actions. Everything below is historical. ETF flows are not a model "
+                    f"feature, so predictions are unaffected."
+                )
+            st.caption(
+                "Net institutional inflow/outflow across all spot Bitcoin ETFs ($M). "
+                "Available from Jan 2024."
+            )
+
+            etf_data = etf_series.tail(sent_n)
             if not etf_data.empty:
                 colors = ['#10b981' if v >= 0 else '#f43f5e' for v in etf_data.values]
                 fig_etf = go.Figure()
