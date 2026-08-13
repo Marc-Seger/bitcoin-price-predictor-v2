@@ -91,10 +91,11 @@ def render():
     tab_names = ["Price & Indicators"]
     if asset == 'BTC':
         tab_names += ["Sentiment", "On-Chain"]
-    # "Technical Analysis" retired 2026-08-13 (S/R zones, Fibonacci, pivots, ATH
-    # levels). Chart-drawing tools rather than analysis, and off-message for a
-    # portfolio aimed at product/analyst roles. The full block is recoverable
-    # from git — see CLAUDE.md for the commit and how to restore it.
+    # "Technical Analysis" retired 2026-08-13 (S/R zones, Fibonacci retracements,
+    # monthly pivots, ATH/cycle levels). Chart-drawing tools rather than analysis.
+    # The ~350-line block is recoverable from git history: find the removal commit
+    # with `git log --oneline -- app/views/dashboard.py`, then restore the block
+    # from its parent and re-add "Technical Analysis" to tab_names above.
     tab_names += ["Cross-Asset"]
     tabs = st.tabs(tab_names)
     tab_map = {name: tabs[i] for i, name in enumerate(tab_names)}
