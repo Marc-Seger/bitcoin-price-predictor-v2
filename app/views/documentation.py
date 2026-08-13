@@ -61,24 +61,57 @@ def render():
     with tab_data:
         st.subheader("Data Sources")
         st.markdown("""
-        All data sources are **free** and **fully automated**. The pipeline covers
-        **Jan 2017 → present** (~3,375 daily rows, ~2,974 model-usable after feature warmup).
+        All data sources are **free**. The pipeline covers **Jan 2017 → present**, roughly
+        3,500 daily rows and growing by one per day, of which about 3,070 have all 52 model
+        features populated after indicator warmup.
 
-        | Source | Data | Frequency | Notes |
-        |--------|------|-----------|-------|
-        | yfinance | BTC, S&P 500, NASDAQ, Gold, Dollar Index (OHLCV) | Daily | Real index tickers (^GSPC, ^IXIC, GC=F, DX-Y.NYB) |
-        | FRED | CPI, Fed Funds Rate, PCE, GDP, 10Y Treasury, M2, Unemployment | Monthly | Forward-filled to daily |
-        | Alternative.me | Bitcoin Fear & Greed Index (0–100) | Daily | Full history to 2018 |
-        | pytrends | Google Trends for "bitcoin" (US, 0–100) | Weekly | Three-window rescaling for consistent scale across 9 years |
-        | CoinMetrics | Active Addresses, Transaction Count, Hash Rate, MVRV Ratio, 30d ROI | Daily | Free community tier |
-        | farside.co.uk | Bitcoin spot ETF net daily flows ($M) | Daily | Available from Jan 2024 (ETF launch) |
+        **Status is stated honestly below.** Two of the six sources are not contributing to the
+        model today, for different reasons, and both are covered in detail underneath the table.
+
+        | Source | Data | Frequency | Status |
+        |--------|------|-----------|--------|
+        | yfinance | BTC, S&P 500, NASDAQ, Gold, Dollar Index (OHLCV) | Daily | **Live** — real index tickers (^GSPC, ^IXIC, GC=F, DX-Y.NYB) |
+        | CoinMetrics | Active Addresses, Transaction Count, Hash Rate, MVRV Ratio, 30d ROI | Daily | **Live** — free community tier, 5 of the 52 model features |
+        | Alternative.me | Bitcoin Fear & Greed Index (0–100) | Daily | **Live** — history from Feb 2018, 1 model feature |
+        | pytrends | Google Trends for "bitcoin" (US, 0–100) | Weekly | **Live, dashboard only** — not a model feature |
+        | FRED | CPI, Fed Funds Rate, PCE, GDP, 10Y Treasury, M2, Unemployment | Monthly | **Fetched and stored, not currently used** by the model or the dashboard |
+        | farside.co.uk | Bitcoin spot ETF net daily flows ($M) | Daily | **Broken since May 2026** — see below |
+
+        #### FRED macro: fetched, validated, unused
+
+        All seven FRED series are pulled daily, forward-filled and range-checked like everything
+        else, but **none of them is among the 52 model features**, and no dashboard chart reads
+        them. They are stored against future use rather than feeding anything today. Stated
+        plainly because the table above would otherwise imply the model sees macro data. It does not.
+
+        #### ETF flows: how it worked, and why it stopped
+
+        `fetch_etf_flows()` requested the daily flow table from farside.co.uk with a desktop
+        browser User-Agent, parsed the page with BeautifulSoup, picked the largest `<table>` on
+        it, and handed that to `pandas.read_html`. It worked, and backfilled cleanly to the spot
+        ETF launch in **January 2024**.
+
+        It has returned **HTTP 403 since around April 2026**, and the last real value stored is
+        **1 May 2026**. The cause is not the parser and not the User-Agent: the site blocks
+        **datacenter IP ranges**. The identical request with the identical headers returns 200
+        from a residential connection and 403 from a GitHub Actions runner, which is why it
+        worked throughout development and died the moment it ran in CI.
+
+        It has deliberately not been worked around. `ETF_Flow_Total` was never a model feature
+        (too little history — see Dropped Data Sources), so nothing downstream depends on it, and
+        the honest options left are all worse than the outage: a residential proxy, a paid data
+        provider, or scraping from somewhere that has not blocked cloud IPs yet. The dashboard's
+        ETF chart consequently shows nothing after 1 May 2026.
 
         ### Data Pipeline
 
         `scripts/update_data.py` runs the full pipeline:
-        1. **Fetch**: downloads new data from all 6 sources since the last update
+        1. **Fetch**: pulls new data from all six sources since the last update. A source failing
+           does not abort the run: it is logged, and validation decides whether the result is
+           usable. This is how the ETF outage is surviving without breaking anything else.
         2. **Merge**: appends new rows to master_df, forward-fills monthly FRED and weekly Trends data
-        3. **Features**: computes 276 technical indicators across all 5 assets
+        3. **Features**: computes the full indicator set across all 5 assets, giving master_df its
+           276 columns (271 candidate features plus 5 target columns)
         4. **Save**: writes the updated master_df.csv (stored as a GitHub Release asset — too large for the repo)
 
         ### Feature Engineering
@@ -95,8 +128,9 @@ def render():
 
         Plus temporal features (day of week, month, season) and on-chain/sentiment data.
 
-        **52 features** are selected for the model from the full 276, based on
-        Random Forest importance ranking and analyst review.
+        **52 features** are selected for the model from the 271 candidates, based on Random
+        Forest importance ranking and analyst review. That selection was made on the full
+        history, which is itself a look-ahead problem — see the Methodology tab.
         """)
 
         st.subheader("Dropped Data Sources")
@@ -131,18 +165,27 @@ def render():
         - Weekly windows align with typical short-term trading decision horizons
 
         ### Evaluation: Walk-Forward Validation
-        The gold standard for time-series model evaluation:
+
+        The intended method, and the right one for time series:
 
         1. Train on all data up to day T
         2. Predict the 7-day return starting at T
-        3. Record the prediction (model has never seen the outcome)
-        4. Slide forward 7 days (non-overlapping), repeat
+        3. Record the prediction before the outcome exists
+        4. Slide forward 7 days so windows do not overlap, repeat
 
-        Every prediction is genuinely out-of-sample. This is much more honest than a simple
-        train/test split, where performance depends heavily on which period you happen to test on.
+        Done properly this beats a simple train/test split, where the result depends heavily on
+        which period you happen to test on.
 
-        Non-overlapping windows are used to avoid inflated metrics from overlapping 7-day returns
-        sharing 6/7 of the same days.
+        **What actually ran was not this**, and both departures are documented in full in the
+        next section. The loop slid forward **one day rather than seven**, so the 2,467
+        "predictions" were overlapping windows sharing six of every seven days. And each step
+        trained on rows whose 7-day targets were computed from prices after the prediction date,
+        so the predictions were not out-of-sample at all.
+
+        Corrected, the evaluation runs on 367 genuinely independent windows with those rows
+        purged. The description above is what the current `scripts/evaluate_leakfree.py` does.
+        `src/models/evaluate.py` and `scripts/tune_xgboost.py` still contain the original leak
+        and should not be re-run without fixing it first.
 
         ### The Target Leak (August 2026 audit)
 
@@ -263,12 +306,16 @@ def render():
 
         ### Data Limitations
 
-        - **FRED macro data is monthly**, forward-filled to daily. The model cannot isolate the
-          impact of a specific CPI release — it sees the same value for 30 days.
-        - **Google Trends is weekly**, forward-filled to daily. The scale is normalised per request
-          window (0–100), requiring multi-window rescaling for historical consistency.
-        - **ETF flows start Jan 2024** — not enough history to use as a model feature, but shown
-          in the dashboard as a retail vs institutional sentiment indicator.
+        - **FRED macro data is fetched but unused** — not by the model, not by the dashboard. It
+          is also monthly, forward-filled to daily, so even if it were used the model could not
+          isolate the impact of a specific CPI release; it would see the same value for 30 days.
+        - **Google Trends is weekly**, forward-filled to daily, and dashboard-only rather than a
+          model feature. The scale is normalised per request window (0–100), requiring
+          multi-window rescaling for historical consistency.
+        - **ETF flows are dead since 1 May 2026.** They start Jan 2024, which was already too
+          little history to use as a model feature, and the source now blocks datacenter IPs so
+          the daily fetch returns 403 from CI. The dashboard chart is empty after that date. Full
+          explanation in the Data Sources tab.
         - **On-chain data** is limited to 5 free CoinMetrics metrics. Paid metrics (supply activity,
           adjusted transfer volumes) might improve predictions.
 
