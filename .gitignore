@@ -16,3 +16,13 @@ __pycache__/
 
 # Legacy notebooks (all logic migrated to src/)
 /notebooks/
+
+# Secret-bearing variants — .env alone does not cover these
+.env.*
+!.env.example
+*.local.yaml
+*.local.json
+secrets.json
+credentials.json
+*.pem
+*.key
