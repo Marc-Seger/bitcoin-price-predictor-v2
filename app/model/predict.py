@@ -210,13 +210,28 @@ def update_outcomes():
 # DRIFT DETECTION
 # ─────────────────────────────────────────────
 
-DRIFT_THRESHOLD = 0.60  # minimum acceptable direction accuracy
+# Expected state is ~50%: the August 2026 audit found target leakage in the original
+# evaluation, and leak-free the model has no demonstrated edge (48.5% against a 52.6%
+# baseline, matched by the live log). So a band, not a floor.
+#
+# This previously used DRIFT_THRESHOLD = 0.60 as a "minimum acceptable accuracy", which
+# after the audit meant the Forecast page permanently displayed "accuracy dropped...
+# consider retraining". That advice was wrong: retraining cannot fix a null result, and
+# a 60% floor implied a level this model has never genuinely reached. Same correction as
+# the weekly monitor in .github/workflows/model_monitor.yml — ask whether something has
+# changed mechanically, not whether the model is "good".
+DRIFT_LOW, DRIFT_HIGH = 0.30, 0.70
 DRIFT_WINDOW = 30       # number of resolved predictions to check
+
 
 def check_drift() -> dict:
     """
-    Check if model accuracy is degrading.
-    Looks at the last DRIFT_WINDOW resolved predictions.
+    Check whether live accuracy has moved far enough from ~50% to suggest something
+    broke, in either direction.
+
+    A large *jump* is treated as suspicious rather than good news: given this project's
+    history, accuracy well above chance is more likely a new data leak or a misaligned
+    join than a real improvement.
 
     Returns dict with:
         status: 'OK', 'WARNING', or 'NO_DATA'
@@ -230,25 +245,36 @@ def check_drift() -> dict:
         return {
             'status': 'NO_DATA',
             'accuracy': None,
-            'message': f'Need {DRIFT_WINDOW} resolved predictions to detect drift '
+            'message': f'Need {DRIFT_WINDOW} resolved predictions to evaluate '
                        f'({len(resolved)} so far).',
         }
 
     recent = resolved.tail(DRIFT_WINDOW)
     accuracy = recent['correct'].mean()
 
-    if accuracy < DRIFT_THRESHOLD:
+    if accuracy > DRIFT_HIGH:
         return {
             'status': 'WARNING',
             'accuracy': accuracy,
-            'message': f'Direction accuracy dropped to {accuracy:.0%} over last '
-                       f'{DRIFT_WINDOW} predictions (threshold: {DRIFT_THRESHOLD:.0%}). '
-                       f'Consider retraining the model.',
+            'message': f'Direction accuracy is {accuracy:.0%} over the last {DRIFT_WINDOW} '
+                       f'predictions. This model has no established edge, so a result this '
+                       f'good is more likely a data leak or a join bug than a genuine '
+                       f'improvement. Investigate before celebrating.',
+        }
+
+    if accuracy < DRIFT_LOW:
+        return {
+            'status': 'WARNING',
+            'accuracy': accuracy,
+            'message': f'Direction accuracy is {accuracy:.0%} over the last {DRIFT_WINDOW} '
+                       f'predictions. Consistently worse than chance usually means an '
+                       f'inverted sign or a misaligned join rather than a bad model.',
         }
 
     return {
         'status': 'OK',
         'accuracy': accuracy,
-        'message': f'Model performing well: {accuracy:.0%} direction accuracy '
-                   f'over last {DRIFT_WINDOW} predictions.',
+        'message': f'Direction accuracy {accuracy:.0%} over the last {DRIFT_WINDOW} '
+                   f'predictions, in line with the ~50% this model is expected to produce. '
+                   f'Nothing has changed mechanically.',
     }

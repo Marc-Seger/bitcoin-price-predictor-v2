@@ -246,5 +246,5 @@ def render():
 
     st.caption(
         "Predictions are logged automatically via GitHub Actions daily at 22:00 UTC. "
-        "Visit the Strategy Lab to see historical backtest results."
+        "See Model Performance for the leak-free backtest and the live track record."
     )
