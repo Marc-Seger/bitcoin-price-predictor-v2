@@ -9,16 +9,21 @@ past calls, and publishes the record — including where it gets things wrong.
 
 ## The headline, stated up front
 
-**This model has no demonstrated edge.**
+**This model has no demonstrated edge.** It calls the direction of Bitcoin's next 7 days about as
+well as a coin flip — slightly worse, in fact, than simply guessing "up" every single time.
 
-| | |
-|---|---|
-| Leak-free backtest, direction accuracy | **48.5%** |
-| R² | **−0.308** |
-| Correlation (prediction, outcome) | **−0.030** |
-| Independent windows | 367 (2019-06 → 2026-06) |
-| Naive baseline (always predict UP) | **52.6%** |
-| Live production log | ~100 resolved predictions, **~49%** |
+| | | what it means |
+|---|---|---|
+| Direction accuracy | **48.5%** | how often it got up-vs-down right |
+| Always guessing "up" | **52.6%** | the do-nothing benchmark it fails to beat |
+| Correlation with reality | **−0.030** | 0 means no relationship at all. This is 0 |
+| R² | **−0.308** | below 0 means worse than always predicting the average |
+| Tested over | 367 independent weeks | June 2019 → June 2026 |
+| Live track record | ~100 forecasts, **~49%** | logged daily since March 2026, before outcomes were known |
+
+The last two rows are the important ones. The backtest and the live record were measured
+completely independently and landed within a point of each other, which is what makes the
+conclusion solid rather than a guess.
 
 An earlier version of this README and the app reported **76.7% direction accuracy**. That figure
 was wrong. It survived for months because the documents describing it copied each other instead
@@ -28,29 +33,57 @@ project.
 
 ## What went wrong, and how it was found
 
-Two errors, both in the evaluation rather than the model.
+Neither error was in the model. Both were in how I *tested* it. No ML background needed for
+what follows.
 
-**1. Overlapping windows counted as independent.** 2,467 daily predictions were reported as
-"non-overlapping". They were not: consecutive 7-day windows share six of their seven days, so one
-correct multi-week call was counted up to seven times. The genuinely independent count is 367.
+### Error 1: counting the same call many times
 
-**2. Target leakage — the dominant effect.** The target is
-`Target_Return_7d = close.shift(-7) / close - 1`, so every row's answer is computed from a price
-seven days later.
+The model forecasts the next 7 days, and I ran it every single day. So Monday's forecast covers
+Mon→Mon, Tuesday's covers Tue→Tue, and those two windows **share six of their seven days**.
+They're nearly the same bet.
 
-The walk-forward loop trained on every row up to the prediction date. Standing on 2 January,
-that includes the 1 January row — whose answer was calculated from the price on 8 January, six
-days into the future. The model was handed worked examples whose answers came from the window it
-was about to forecast, and because consecutive days have near-identical features, it could
-largely echo them back.
+If Bitcoin climbs steadily for a fortnight and the model says "up", it's right on Monday, right
+again Tuesday, right again Wednesday — fourteen ticks in the correct column. But that isn't
+fourteen good calls. It's about two, counted over and over.
 
-The rule it broke, stated simply: **you can only train on examples whose outcome has already
-finished.** On 2 January the last completed example is 26 December, because its seven-day window
-closed that morning. Everything after it is still in progress. The fix drops those final rows;
-the cost is sacrificing the most recent week of training data at every step.
+It's like grading a weather forecaster who says "rain this week" every morning during a wet
+fortnight, then crediting them with fourteen correct forecasts.
 
-Removing the leak takes direction accuracy from 73.3% to **48.5%**, and the correlation between
-prediction and outcome from 0.77 to −0.03. Not a weaker edge — no edge.
+So "2,467 predictions" was really **367** independent ones, and lucky streaks got multiplied.
+Cost: about 3 percentage points.
+
+### Error 2: the model was shown the answers
+
+This is the one that mattered.
+
+To teach the model, you give it thousands of worked examples: *here are the market conditions on
+some day, and here is what Bitcoin actually did over the following week.* It learns by finding
+patterns linking the two.
+
+The catch is that the second half of each example — what actually happened next — **can only be
+filled in a week later**. The answer for 1 January requires the price on 8 January.
+
+My test loop trained on every day up to the forecast date. So to forecast from **2 January**, it
+trained on examples including **1 January** — whose answer had been calculated using the price on
+**8 January**, six days after the moment the model was supposedly standing in.
+
+I had handed it worked examples whose answers were taken from the very week it was being asked to
+predict. And since one day's market conditions look nearly identical to the next day's, it didn't
+need to learn anything. It could recognise the near-duplicate and repeat the answer back.
+
+The rule I'd broken, in one line: **you can only learn from examples that have already finished.**
+On 2 January the most recent finished example is 26 December, because its week closed that
+morning. Everything after it was still running.
+
+The fix discards those last few days of training data at every step. Cost: you always give up the
+most recent week. Benefit: the model can no longer see any part of the future.
+
+**Removing the leak takes direction accuracy from 73.3% to 48.5%**, and the link between
+prediction and outcome from 0.77 down to −0.03 — that second number means the forecasts and
+reality are, statistically, unrelated. Not a weaker edge. No edge.
+
+For the technically inclined: the target is `Target_Return_7d = close.shift(-7) / close - 1`, and
+the walk-forward loop trained on `df.iloc[:i]` where it should have used `df.iloc[:i-7]`.
 
 Two independent measurements agree on this. The corrected backtest says 48.5%; the live
 production log, which has recorded a prediction before its outcome was known since March 2026,
@@ -96,15 +129,22 @@ The engineering around the model is sound, and it is what the project is actuall
 
 ## What would have to change
 
-Three fixes, in order of importance, before any future number here should be trusted:
+Three fixes, in order of importance, before any future number here should be trusted. All three
+are versions of the same mistake: **letting the test see something it shouldn't.**
 
-1. **Purge the last seven training rows** at every walk-forward step. That is the leak.
-2. **Select features inside the walk-forward** rather than before it. The 52 features were chosen
-   from 271 candidates by importance measured across the full eight years, then scored on those
-   same eight years.
-3. **Tune against a genuinely held-out period.** The hyperparameters came from 100 Optuna trials
-   each scored on the entire history, keeping whichever scored highest — a maximum over 100
-   attempts on the data being reported, not an out-of-sample result.
+1. **Stop training on unfinished examples.** That's the leak described above, and it's fixed in
+   `scripts/evaluate_leakfree.py` — but the older scripts still contain it.
+
+2. **Choose the inputs without peeking.** The model uses 52 pieces of market data, picked from
+   271 candidates because they looked most useful *across the whole eight years* — then tested on
+   those same eight years. So the choice of inputs was informed by the period being graded. The
+   selection should happen inside the test, using only past data.
+
+3. **Tune the settings on a period you then throw away.** The model's settings were chosen by
+   trying 100 combinations, scoring each one across the entire history, and keeping the best.
+   That's picking the winner of 100 attempts *on the exam you're about to sit* — so the reported
+   score is a best-of-100, not an honest estimate. The standard fix is to tune on early years and
+   report only on later years the tuning never touched.
 
 None of this is done, and none of it is expected to rescue the model. Seven-day Bitcoin direction
 from free daily data may simply not be predictable, and a null result is the honest outcome rather
