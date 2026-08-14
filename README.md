@@ -35,9 +35,19 @@ Two errors, both in the evaluation rather than the model.
 correct multi-week call was counted up to seven times. The genuinely independent count is 367.
 
 **2. Target leakage — the dominant effect.** The target is
-`Target_Return_7d = close.shift(-7) / close - 1`. The walk-forward loop trained on every row up to
-the prediction date, which meant the last six training rows carried targets computed from prices
-*after* that date. The model was being trained on the answer.
+`Target_Return_7d = close.shift(-7) / close - 1`, so every row's answer is computed from a price
+seven days later.
+
+The walk-forward loop trained on every row up to the prediction date. Standing on 2 January,
+that includes the 1 January row — whose answer was calculated from the price on 8 January, six
+days into the future. The model was handed worked examples whose answers came from the window it
+was about to forecast, and because consecutive days have near-identical features, it could
+largely echo them back.
+
+The rule it broke, stated simply: **you can only train on examples whose outcome has already
+finished.** On 2 January the last completed example is 26 December, because its seven-day window
+closed that morning. Everything after it is still in progress. The fix drops those final rows;
+the cost is sacrificing the most recent week of training data at every step.
 
 Removing the leak takes direction accuracy from 73.3% to **48.5%**, and the correlation between
 prediction and outcome from 0.77 to −0.03. Not a weaker edge — no edge.
