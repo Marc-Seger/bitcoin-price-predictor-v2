@@ -30,7 +30,21 @@ credentials.json
 # Local working notes — never committed. These accumulate personal context
 # and operational detail (server access, deployment specifics) that does not
 # belong in a repository.
-CLAUDE.md
-CLAUDE_CODE.md
-**/CLAUDE.md
-**/CLAUDE_CODE.md
+/*.md
+!README.md
+
+# Optuna tuning artifacts. The chosen hyperparameters ARE committed
+# (results/tuning/xgboost_best_params_v2.json — train_production.py and the
+# weekly monitor both read it, so the pipeline breaks without it). These are
+# the raw search byproducts: binary study databases and per-trial logs, worth
+# hundreds of KB, regenerable by re-running scripts/tune_xgboost.py, and of no
+# use to anyone reading the repo.
+results/tuning/*.db
+results/tuning/xgboost_tuning_results*.csv
+
+# Superseded v1 tuning output, kept locally for reference only.
+results/tuning/xgboost_best_params.json
+
+# One-off local diagram, not referenced by the app or any script.
+pipeline_diagram.html
+

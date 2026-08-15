@@ -17,7 +17,6 @@ APP_DIR = os.path.dirname(os.path.dirname(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(APP_DIR, '..'))
 
 MODEL_PATH = os.path.join(PROJECT_ROOT, 'models', 'xgboost_production.joblib')
-PARAMS_PATH = os.path.join(PROJECT_ROOT, 'results', 'tuning', 'xgboost_best_params.json')
 TRADE_LOG_PATH = os.path.join(APP_DIR, 'data', 'trade_log.csv')
 
 import sys
