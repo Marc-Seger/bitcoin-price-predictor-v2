@@ -121,9 +121,11 @@ The engineering around the model is sound, and it is what the project is actuall
   yesterday's model in place.
 - **Predictions are logged before outcomes exist.** That log is the only reason the error was
   findable at all.
-- **Weekly health monitoring** on pipeline liveness, prediction cadence and retune age. Accuracy is
-  reported rather than alarmed, since ~50% is the expected state — and a sudden jump *above* the
-  band is treated as a suspected leak rather than good news.
+- **Weekly health monitoring** on pipeline liveness and prediction cadence — these alert on
+  failure, since the dashboard is meant to stay live and current. Accuracy and retune age are
+  both reported, not alarmed: ~50% is the expected state (a sudden jump *above* the band reads as
+  a suspected leak, not good news), and retuning is paused until the tuning script's own leak is
+  fixed, so flagging its age weekly isn't actionable yet.
 - **20 unit tests run in CI on every push**, covering the date arithmetic that once caused a
   17-day silent data gap, the accounting-format parser, and the merge logic.
 

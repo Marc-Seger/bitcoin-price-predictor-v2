@@ -45,9 +45,15 @@ jobs:
           # alerting on that every week would be permanent noise.
           #
           # So the job now asks "is the machinery still working?" — data arriving,
-          # predictions being logged, params not ancient. Accuracy is REPORTED as a
-          # number, and only alerts if it moves far from ~50% in EITHER direction:
-          # a sudden jump is far more likely to be a new leak than a real discovery.
+          # predictions being logged. Accuracy is REPORTED as a number, and only
+          # alerts if it moves far from ~50% in EITHER direction: a sudden jump is
+          # far more likely to be a new leak than a real discovery.
+          #
+          # Retune age is reported the same way, and deliberately does NOT alert
+          # (2026-08-18): tune_xgboost.py still contains the same target leak this
+          # audit found in evaluate.py, so retuning today would just produce another
+          # contaminated number, not a real fix. Re-enable the alert once that
+          # script is fixed (CLAUDE.md, Option B) — until then it's not actionable.
           #
           # Rule for every check below: a check that cannot RUN must raise an alert,
           # never a silent note. The previous version appended failures to `details`
@@ -71,7 +77,6 @@ jobs:
           STALE_DAYS      = 3    # no prediction logged in this many days
           CADENCE_WINDOW  = 14   # look back this far...
           CADENCE_MIN     = 7    # ...and expect at least this many predictions
-          RETUNE_MAX_DAYS = 90
 
 
           def read_trade_log():
@@ -154,6 +159,10 @@ jobs:
           # Read from a `tuned_at` field committed inside the params file. The old
           # version used os.path.getmtime(), which in Actions only ever measures the
           # checkout time — every file looks seconds old, so this never fired.
+          #
+          # Reported only, never an alert (2026-08-18): tune_xgboost.py still has the
+          # same leak the August audit found, so retuning now would just produce
+          # another contaminated number. Not actionable until that script is fixed.
           try:
               with open(PARAMS) as f:
                   params = json.load(f)
@@ -165,12 +174,10 @@ jobs:
                   )
               else:
                   days_since = (today_naive - pd.Timestamp(tuned_at)).days
-                  details.append(f"Days since last retune: {days_since}d (tuned {tuned_at})")
-                  if days_since > RETUNE_MAX_DAYS:
-                      issues.append(
-                          f"**Model params are {days_since} days old** (threshold: {RETUNE_MAX_DAYS}). "
-                          f"Consider running `tune_xgboost.py`, and note the known methodology fixes first."
-                      )
+                  details.append(
+                      f"Days since last retune: {days_since}d (tuned {tuned_at}) — "
+                      f"retuning paused until tune_xgboost.py's leak is fixed, not an alert"
+                  )
           except Exception as e:
               issues.append(f"**Retune age check could not run**: `{type(e).__name__}: {e}`")
 
