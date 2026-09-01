@@ -19,7 +19,7 @@ well as a coin flip — slightly worse, in fact, than simply guessing "up" every
 | Correlation with reality | **−0.030** | 0 means no relationship at all. This is 0 |
 | R² | **−0.308** | below 0 means worse than always predicting the average |
 | Tested over | 367 independent weeks | June 2019 → June 2026 |
-| Live track record | ~100 forecasts, **~49%** | logged daily since March 2026, before outcomes were known |
+| Live track record | 120 resolved forecasts, **48.3%** | logged daily since March 2026, before outcomes were known (2026-09-01, drifts daily) |
 
 The last two rows are the important ones. The backtest and the live record were measured
 completely independently and landed within a point of each other, which is what makes the
