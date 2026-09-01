@@ -261,7 +261,7 @@ def render():
         Three fixes before any future number here should be trusted, in order of importance:
 
         1. **Purge the last 7 training rows** at every walk-forward step. This is the leak above.
-        2. **Select features inside the walk-forward.** The 52 features were picked from 269 by
+        2. **Select features inside the walk-forward.** The 52 features were picked from 271 by
            importance measured on the full eight years, then scored on those same eight years.
         3. **Tune against a held-out period.** The hyperparameters came from 100 Optuna trials,
            each scored on the entire history, keeping the highest. That is a maximum over 100
